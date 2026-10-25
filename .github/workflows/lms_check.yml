@@ -1,0 +1,42 @@
+name: LMS CIS Notification Checker
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-lms:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run LMS Notifier
+        env:
+          LMS_USERNAME: ${{ secrets.LMS_USERNAME }}
+          LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+          SEND_ON_FIRST_RUN: "true"
+        run: python lms_notifier.py
+
+      - name: Save seen items state
+        run: |
+          git config user.name "LMS Bot"
+          git config user.email "actions@github.com"
+          git add seen_lms_items.json || true
+          git diff --staged --quiet || git commit -m "Update seen LMS items"
+          git push
