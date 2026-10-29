@@ -1,7 +1,7 @@
 # 🔔 CIS LMS Notifier (`lmscis.com`)
 small script to fetch all events from my college platform to my email to remind me, because our platform it's sucks
 
-Because the official Moodle platform ([lmscis.com](https://www.google.com/search?q=https://lmscis.com/)) does not send email alerts, this tool automatically checks your enrolled courses every hour and sends a clean, formatted email notification to your personal Gmail whenever a professor posts a new **Quiz**, **Assignment**, **Announcement**, **Lecture File**, or **Deadline**.
+Because the official Moodle platform ([lmscis.com](https://lmscis.com/)) does not send email alerts, this tool automatically checks your enrolled courses every hour and sends a clean, formatted email notification to your personal Gmail whenever a professor posts a new **Quiz**, **Assignment**, **Announcement**, **Lecture File**, or **Deadline**.
 
 ## ✨ Key Features
 
@@ -30,8 +30,8 @@ Any student at CIS can set up their own personal notifier in less than 5 minutes
 
 To allow the script to send email notifications to your Gmail securely without using your main Google password:
 
-1. Go to your [Google Account Security Settings](https://www.google.com/search?q=https://myaccount.google.com/security) and make sure **2-Step Verification** is turned **ON**.
-2. Open the [Google App Passwords Page](https://www.google.com/search?q=https://myaccount.google.com/apppasswords).
+1. Go to your [Google Account Security Settings](https://myaccount.google.com/security) and make sure **2-Step Verification** is turned **ON**.
+2. Open the [Google App Passwords Page](https://myaccount.google.com/apppasswords).
 3. Enter a name such as `CIS LMS Notifier` and click **Create**.
 4. Copy the **16-character password** shown on the screen (you will need it in Step 3).
 
