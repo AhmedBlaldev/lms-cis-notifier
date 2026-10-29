@@ -10,6 +10,7 @@
 """
 
 import json
+import html
 import os
 import re
 import smtplib
@@ -18,6 +19,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -27,15 +29,15 @@ from bs4 import BeautifulSoup
 # (يتم قراءتها من متغيرات البيئة أو تعديلها هنا للتجربة المحلية)
 # ==========================================
 LMS_BASE_URL = os.getenv("LMS_BASE_URL", "https://lmscis.com").rstrip("/")
-LMS_USERNAME = os.getenv("LMS_USERNAME", "C2300230@cis.edu.eg")
-LMS_PASSWORD = os.getenv("LMS_PASSWORD", "YOUR_LMS_PASSWORD")
+LMS_USERNAME = os.getenv("LMS_USERNAME", "")
+LMS_PASSWORD = os.getenv("LMS_PASSWORD", "")
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-EMAIL_SENDER = os.getenv("EMAIL_SENDER", "samuraiegypt123@gmail.com")
+EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")
 # يفضل إزالة المسافات تلقائياً من App Password لضمان عمله بدون مشاكل
-EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "YOUR_16_DIGIT_APP_PASSWORD").replace(" ", "")
-EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", EMAIL_SENDER)
+EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "").replace(" ", "")
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "")
 
 STATE_FILE = Path(os.getenv("STATE_FILE", "seen_lms_items.json"))
 
@@ -51,6 +53,33 @@ ACTIVITY_TYPES_AR = {
     "page": "صفحة محتوى (Page)",
     "calendar_event": "موعد تسليم / حدث في التقويم (Deadline/Event)",
 }
+
+
+def validate_required_settings() -> None:
+    required = {
+        "LMS_USERNAME": LMS_USERNAME,
+        "LMS_PASSWORD": LMS_PASSWORD,
+        "EMAIL_SENDER": EMAIL_SENDER,
+        "EMAIL_APP_PASSWORD": EMAIL_APP_PASSWORD,
+        "EMAIL_RECEIVER": EMAIL_RECEIVER,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise ValueError(
+            "Missing required environment variables: " + ", ".join(missing)
+        )
+
+
+def safe_email_text(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def safe_email_url(value: object) -> str:
+    url = str(value).strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return html.escape(url, quote=True)
 
 
 class LMSNotifier:
@@ -382,6 +411,12 @@ def build_email_html(new_items: List[Dict[str, str]]) -> str:
 
     cards_html = ""
     for item in new_items:
+        course_name = safe_email_text(item.get("course_name", ""))
+        event_name = safe_email_text(item.get("event_name", ""))
+        type_label = safe_email_text(item.get("type_label", ""))
+        details = safe_email_text(item.get("details", ""))
+        item_url = safe_email_url(item.get("url", ""))
+
         # تحديد لون الشارة حسب نوع الحدث
         badge_color = "#0b57d0"
         if item["type"] == "quiz":
@@ -392,10 +427,20 @@ def build_email_html(new_items: List[Dict[str, str]]) -> str:
             badge_color = "#188038"  # أخضر للإعلانات
 
         details_block = ""
-        if item.get("details"):
+        if details:
             details_block = f"""
             <div style="margin-top: 10px; padding: 10px; background-color: #f8f9fa; border-right: 3px solid {badge_color}; border-radius: 4px; color: #3c4043; font-size: 14px;">
-                <strong>التفاصيل / المحتوى:</strong><br>{item['details']}
+                <strong>التفاصيل / المحتوى:</strong><br>{details}
+            </div>
+            """
+
+        link_block = ""
+        if item_url:
+            link_block = f"""
+            <div style="margin-top: 14px;">
+                <a href="{item_url}" style="display: inline-block; background-color: #0b57d0; color: #ffffff; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: bold;">
+                    فتح الحدث على المنصة ⬅
+                </a>
             </div>
             """
 
@@ -403,25 +448,21 @@ def build_email_html(new_items: List[Dict[str, str]]) -> str:
         <div style="border: 1px solid #dadce0; border-radius: 8px; padding: 16px; margin-bottom: 16px; background-color: #ffffff;">
             <div style="margin-bottom: 8px;">
                 <span style="background-color: {badge_color}; color: #ffffff; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">
-                    {item['type_label']}
+                    {type_label}
                 </span>
             </div>
             <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 15px;">
                 <tr>
                     <td style="padding: 6px 0; color: #5f6368; width: 110px;"><strong>📚 اسم المادة:</strong></td>
-                    <td style="padding: 6px 0; color: #1f1f1f; font-weight: bold;">{item['course_name']}</td>
+                    <td style="padding: 6px 0; color: #1f1f1f; font-weight: bold;">{course_name}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 0; color: #5f6368;"><strong>📌 اسم الحدث:</strong></td>
-                    <td style="padding: 6px 0; color: #0b57d0; font-weight: bold;">{item['event_name']}</td>
+                    <td style="padding: 6px 0; color: #0b57d0; font-weight: bold;">{event_name}</td>
                 </tr>
             </table>
             {details_block}
-            <div style="margin-top: 14px;">
-                <a href="{item['url']}" style="display: inline-block; background-color: #0b57d0; color: #ffffff; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: bold;">
-                    فتح الحدث على المنصة ⬅
-                </a>
-            </div>
+            {link_block}
         </div>
         """
 
@@ -454,10 +495,14 @@ def send_email_notification(new_items: List[Dict[str, str]]) -> None:
 
     if len(new_items) == 1:
         first = new_items[0]
-        subject = f"🔔 [{first['course_name']}] {first['type_label']}: {first['event_name']}"
+        subject = (
+            f"🔔 [{first['course_name']}] {first['type_label']}: "
+            f"{first['event_name']}"
+        )
     else:
         courses_summary = "، ".join(sorted({item["course_name"] for item in new_items}))
         subject = f"🔔 ({len(new_items)}) تحديثات جديدة على المنصة - المواد: {courses_summary}"
+    subject = subject.replace("\r", " ").replace("\n", " ")
 
     msg = MIMEMultipart("alternative")
     msg["From"] = EMAIL_SENDER
@@ -500,6 +545,7 @@ def save_seen_ids(seen_ids: set) -> None:
 
 
 def main():
+    validate_required_settings()
     notifier = LMSNotifier(LMS_BASE_URL, LMS_USERNAME, LMS_PASSWORD)
     if not notifier.login():
         raise SystemExit(1)

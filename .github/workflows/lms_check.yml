@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check-lms:
@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -21,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install --requirement requirements.txt
 
       - name: Run LMS Notifier
         env:
@@ -32,6 +34,27 @@ jobs:
           EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
           SEND_ON_FIRST_RUN: "true"
         run: python lms_notifier.py
+
+      - name: Upload seen items state
+        uses: actions/upload-artifact@v4
+        with:
+          name: seen-lms-items
+          path: seen_lms_items.json
+          if-no-files-found: error
+
+  save-state:
+    needs: check-lms
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download seen items state
+        uses: actions/download-artifact@v4
+        with:
+          name: seen-lms-items
 
       - name: Save seen items state
         run: |
