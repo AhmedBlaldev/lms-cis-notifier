@@ -9,8 +9,8 @@
 - اسم الحدث أو تفاصيل الإعلان والرابط المباشر له
 """
 
-import json
 import html
+import json
 import os
 import re
 import smtplib
@@ -20,26 +20,29 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
 
 # ==========================================
 # إعدادات المنصة والبريد الإلكتروني
-# (يتم قراءتها من متغيرات البيئة أو تعديلها هنا للتجربة المحلية)
+# (يتم قراءتها بالكامل من متغيرات البيئة / GitHub Secrets)
 # ==========================================
 LMS_BASE_URL = os.getenv("LMS_BASE_URL", "https://lmscis.com").rstrip("/")
-LMS_USERNAME = os.getenv("LMS_USERNAME", "")
+LMS_USERNAME = os.getenv("LMS_USERNAME", "").strip()
 LMS_PASSWORD = os.getenv("LMS_PASSWORD", "")
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")
-# يفضل إزالة المسافات تلقائياً من App Password لضمان عمله بدون مشاكل
+EMAIL_SENDER = os.getenv("EMAIL_SENDER", "").strip()
+# إزالة المسافات تلقائياً من App Password لضمان عمله بدون مشاكل
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "").replace(" ", "")
-EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "")
+# إذا لم يتم تحديد EMAIL_RECEIVER، يتم الإرسال لنفس EMAIL_SENDER تلقائياً
+EMAIL_RECEIVER = (os.getenv("EMAIL_RECEIVER") or EMAIL_SENDER).strip()
 
 STATE_FILE = Path(os.getenv("STATE_FILE", "seen_lms_items.json"))
+CAIRO_TZ = ZoneInfo("Africa/Cairo")
 
 # ترجمة أنواع الأنشطة داخل Moodle إلى مسميات واضحة بالعربية
 ACTIVITY_TYPES_AR = {
@@ -138,7 +141,7 @@ class LMSNotifier:
 
         for candidate in candidates:
             if self._attempt_login(candidate):
-                print(f"✅ تم تسجيل الدخول بنجاح إلى المنصة باستخدام ({candidate}).")
+                print("✅ تم تسجيل الدخول بنجاح إلى المنصة.")
                 return True
 
         print("❌ فشل تسجيل الدخول: تأكد من اسم المستخدم وكلمة المرور.")
@@ -406,8 +409,8 @@ class LMSNotifier:
 
 
 def build_email_html(new_items: List[Dict[str, str]]) -> str:
-    """تصميم رسالة البريد الإلكتروني بتنسيق عربي واضح يبرز اسم المادة واسم الحدث."""
-    now_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+    """تصميم رسالة البريد الإلكتروني بتنسيق عربي واضح يبرز اسم المادة واسم الحدث بتوقيت القاهرة."""
+    now_str = datetime.now(CAIRO_TZ).strftime("%Y-%m-%d %I:%M %p")
 
     cards_html = ""
     for item in new_items:
@@ -474,7 +477,7 @@ def build_email_html(new_items: List[Dict[str, str]]) -> str:
         <div style="max-width: 640px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.08);">
             <div style="background-color: #1a73e8; color: #ffffff; padding: 18px 24px;">
                 <h2 style="margin: 0; font-size: 20px;">🔔 إشعار جديد من منصة المعهد (CIS LMS)</h2>
-                <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">تاريخ الفحص: {now_str} | عدد التحديثات الجديدة: {len(new_items)}</p>
+                <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">توقيت الفحص (القاهرة): {now_str} | عدد التحديثات الجديدة: {len(new_items)}</p>
             </div>
             <div style="padding: 20px;">
                 {cards_html}
@@ -517,7 +520,7 @@ def send_email_notification(new_items: List[Dict[str, str]]) -> None:
         server.login(EMAIL_SENDER, EMAIL_APP_PASSWORD)
         server.sendmail(EMAIL_SENDER, [EMAIL_RECEIVER], msg.as_string())
 
-    print(f"📩 تم إرسال الإشعار بنجاح إلى {EMAIL_RECEIVER} ({len(new_items)} عنصر جديد).")
+    print(f"📩 تم إرسال الإشعار بنجاح ({len(new_items)} عنصر جديد).")
 
 
 def load_seen_ids() -> set:
@@ -534,7 +537,7 @@ def save_seen_ids(seen_ids: set) -> None:
     STATE_FILE.write_text(
         json.dumps(
             {
-                "updated_at": datetime.now().isoformat(),
+                "updated_at": datetime.now(CAIRO_TZ).isoformat(),
                 "seen_ids": sorted(seen_ids),
             },
             ensure_ascii=False,
