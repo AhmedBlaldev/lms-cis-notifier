@@ -35,7 +35,14 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 EMAIL_SENDER = os.getenv("EMAIL_SENDER", "").strip()
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "").replace(" ", "")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+def _clean_supabase_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url.strip())
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return re.sub(r"/rest/v1.*$", "", raw_url.strip(), flags=re.I).rstrip("/")
+
+
+SUPABASE_URL = _clean_supabase_url(os.getenv("SUPABASE_URL", ""))
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 
 CAIRO_TZ = ZoneInfo("Africa/Cairo")
