@@ -8,6 +8,8 @@
 - يرسل رسالة ترحيب وتأكيد (بالمواد المسجلة) عند اشتراك الطالب لأول مرة.
 - وضع WELCOME_ONLY=true: يفحص المشتركين الجدد فقط (اللي لسه ما وصلهمش ترحيب)،
   وده اللي بيشتغل فوراً لما الـ Edge Function تشغّل الـ workflow بعد التسجيل.
+- يدعم فك تشفير كلمة المرور بعدة مفاتيح محتملة (ENCRYPTION_KEY أو SUPABASE_SERVICE_KEY)
+  مع دعم تلقائي لكلمات المرور النصية المباشرة (Fallback) لضمان عدم فشل أي مشترك.
 - فشل أي مشترك (شبكة / LMS / SMTP) لا يوقف باقي المشتركين ولا يوقع الـ workflow.
 - يضع رابط إلغاء اشتراك مباشر (Unsubscribe) في أسفل كل إيميل.
 """
@@ -16,6 +18,7 @@ import base64
 import hashlib
 import hmac
 import html
+import json
 import os
 import re
 import smtplib
@@ -57,6 +60,8 @@ def _clean_supabase_url(raw_url: str) -> str:
 
 SUPABASE_URL = _clean_supabase_url(os.getenv("SUPABASE_URL", ""))
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+# مفتاح تشفير إضافي اختياري في حال كان SUPABASE_SERVICE_ROLE_KEY في Edge Function مختلفاً
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "").strip()
 
 # true => افحص المشتركين الجدد فقط (اللي seen_ids بتاعتهم فاضية) وابعتلهم الترحيب
 WELCOME_ONLY = os.getenv("WELCOME_ONLY", "false").strip().lower() in {"1", "true", "yes"}
@@ -141,21 +146,73 @@ def build_unsubscribe_url(student_email: str) -> str:
 
 
 def build_unsubscribe_token(student_email: str) -> str:
+    secret_seed = (ENCRYPTION_KEY or SUPABASE_SERVICE_KEY).encode("utf-8")
     digest = hmac.new(
-        SUPABASE_SERVICE_KEY.encode("utf-8"),
+        secret_seed,
         student_email.strip().lower().encode("utf-8"),
         hashlib.sha256,
     ).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
-def decrypt_password(ciphertext: str) -> str:
+def _try_aes_gcm_decrypt(raw_bytes: bytes, secret_str: str) -> Optional[str]:
+    if not secret_str or len(raw_bytes) < 28:
+        return None
     try:
-        raw = base64.b64decode(ciphertext, validate=True)
-        key = hashlib.sha256(SUPABASE_SERVICE_KEY.encode("utf-8")).digest()
-        return AESGCM(key).decrypt(raw[:12], raw[12:], None).decode("utf-8")
-    except Exception as exc:  # InvalidTag / binascii.Error / UnicodeDecodeError ...
-        raise ValueError("Invalid encrypted LMS password") from exc
+        key = hashlib.sha256(secret_str.encode("utf-8")).digest()
+        return AESGCM(key).decrypt(raw_bytes[:12], raw_bytes[12:], None).decode("utf-8")
+    except Exception:
+        return None
+
+
+def resolve_subscriber_password(sub: Dict) -> str:
+    """
+    استخراج أو فك تشفير كلمة مرور الطالب بمرونة عالية:
+    1. إذا وُجد حقل نصي مباشر `lms_password` غير مشفر، يستخدمه.
+    2. إذا كان مشفراً بـ AES-GCM في `lms_password_ciphertext`، يجرب فك التشفير
+       باستخدام `ENCRYPTION_KEY` ثم `SUPABASE_SERVICE_KEY`.
+    3. إذا كانت القيمة المحفوظة داخل `lms_password_ciphertext` نصاً عادياً غير مشفر
+       (مثلاً تم إدخالها مباشرة من الفرونت إند)، يرجعها كما هي لتجربة الدخول بها.
+    """
+    plain_field = (sub.get("lms_password") or "").strip()
+    cipher_field = (sub.get("lms_password_ciphertext") or "").strip()
+    value = cipher_field or plain_field
+
+    if not value:
+        raise ValueError("Empty password field in database")
+
+    # محاولة فك base64 (بما في ذلك urlsafe أو بدون padding)
+    padded = value + "=" * (-len(value) % 4)
+    raw_bytes: Optional[bytes] = None
+    for decoder in (
+        lambda s: base64.b64decode(s, validate=True),
+        lambda s: base64.urlsafe_b64decode(s),
+    ):
+        try:
+            decoded = decoder(padded)
+            if len(decoded) >= 28:
+                raw_bytes = decoded
+                break
+        except Exception:
+            continue
+
+    if raw_bytes is not None:
+        candidate_secrets = [
+            ENCRYPTION_KEY,
+            SUPABASE_SERVICE_KEY,
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
+        ]
+        for secret in candidate_secrets:
+            decrypted = _try_aes_gcm_decrypt(raw_bytes, secret)
+            if decrypted is not None:
+                return decrypted
+
+        # إذا كانت القيمة تبدو كـ AES-GCM ciphertext صريح وفشل فك التشفير بكل المفاتيح
+        if len(value) >= 36 and re.fullmatch(r"[A-Za-z0-9+/=_-]+", value):
+            raise ValueError("AES-GCM key mismatch")
+
+    # Fallback: إذا كانت القيمة نصاً عادياً (Plaintext password) محفوظاً مباشرة
+    return plain_field or cipher_field
 
 
 def is_item_allowed_by_prefs(item_type: str, prefs: Optional[Dict]) -> bool:
@@ -180,8 +237,6 @@ class LMSNotifier:
         self.password = password
         self.session = make_session()
         self.sesskey: Optional[str] = None
-        # عدد المواد اللي فشل فحصها بسبب خطأ (شبكة مثلاً) — بنستخدمه عشان
-        # ما نبعتش ترحيب بناءً على فحص ناقص.
         self.course_scan_errors = 0
 
     def _attempt_login(self, username_to_try: str) -> bool:
@@ -236,7 +291,7 @@ class LMSNotifier:
                     last_error = exc
                     if attempt < LOGIN_ATTEMPTS:
                         time.sleep(2 * attempt)
-                        self.session = make_session()  # connection جديد بدل المقفول
+                        self.session = make_session()
 
         if got_definitive_answer:
             return False
@@ -588,7 +643,6 @@ def send_email_to_student(
 ) -> None:
     if not receiver_email:
         return
-    # رسالة الترحيب بتتبعت حتى لو مفيش عناصر؛ باقي الرسائل لازم يكون فيها عناصر.
     if not new_items and not is_welcome:
         return
 
@@ -635,10 +689,10 @@ def _supabase_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 
 
 def fetch_active_subscribers(http: requests.Session) -> List[Dict]:
+    # نستخدم select=* لدعم كل من lms_password_ciphertext أو lms_password بدون أخطاء أعمدة
     url = (
         f"{SUPABASE_URL}/rest/v1/subscribers"
-        "?active=eq.true&select=id,lms_username,lms_password_ciphertext,email,notify_prefs,seen_ids"
-        "&order=id.asc"
+        "?active=eq.true&select=*&order=id.asc"
     )
     resp = http.get(url, headers=_supabase_headers(), timeout=HTTP_TIMEOUT)
     resp.raise_for_status()
@@ -662,16 +716,31 @@ def process_subscriber(sub: Dict, http: requests.Session) -> None:
     sub_id = sub["id"]
     username = sub["lms_username"]
     email = sub["email"]
+
     prefs = sub.get("notify_prefs") or {}
-    seen_ids = set(sub.get("seen_ids") or [])
+    if isinstance(prefs, str):
+        try:
+            prefs = json.loads(prefs)
+        except Exception:
+            prefs = {}
+
+    raw_seen = sub.get("seen_ids") or []
+    if isinstance(raw_seen, str):
+        try:
+            raw_seen = json.loads(raw_seen)
+        except Exception:
+            raw_seen = []
+    seen_ids = set(raw_seen)
     is_first_run = len(seen_ids) == 0
 
     try:
-        password = decrypt_password(sub["lms_password_ciphertext"])
+        password = resolve_subscriber_password(sub)
     except ValueError:
+        key_fp = hashlib.sha256(SUPABASE_SERVICE_KEY.encode("utf-8")).hexdigest()[:8]
         print(
-            f"⚠️ تعذر فك تشفير كلمة مرور المشترك #{sub_id}. غالباً SUPABASE_SERVICE_KEY في "
-            "GitHub Secrets مختلف عن SUPABASE_SERVICE_ROLE_KEY المستخدم في الـ Edge Function."
+            f"⚠️ تعذر فك تشفير كلمة مرور المشترك #{sub_id} (بصمة SUPABASE_SERVICE_KEY الحالي: {key_fp}). "
+            "تأكد من نسخ مفتاح service_role (JWT الذي يبدأ بـ eyJ...) من Supabase > Project Settings > API > Legacy API Keys "
+            "ووضعه في SUPABASE_SERVICE_KEY داخل GitHub Secrets."
         )
         return
 
@@ -698,12 +767,10 @@ def process_subscriber(sub: Dict, http: requests.Session) -> None:
     for course in courses:
         all_items.extend(notifier.scan_course(course))
 
-    # أول مرة: ما نبعتش ترحيب ولا نعلّم العناصر "اتشافت" لو الفحص طلع ناقص،
-    # عشان ما يحصلش بعدين سيل إيميلات بكل العناصر القديمة.
-    if is_first_run and (not courses or notifier.course_scan_errors):
+    # لو الفحص الأول فشل في جلب أي مواد بسبب خطأ شبكة مؤقت، نعيد المحاولة في الدورة القادمة
+    if is_first_run and not courses and notifier.course_scan_errors > 0:
         print(
-            f"⚠️ فحص المشترك #{sub_id} ناقص (مواد: {len(courses)}، أخطاء فحص: "
-            f"{notifier.course_scan_errors}) — هيتعاد في الدورة القادمة."
+            f"⚠️ فحص المشترك #{sub_id} واجه خطأ شبكة مؤقت أثناء جلب المواد — هيتعاد في الدورة القادمة."
         )
         return
 
@@ -713,7 +780,6 @@ def process_subscriber(sub: Dict, http: requests.Session) -> None:
     ]
 
     if is_first_run:
-        # عناصر المواد الأول، وبعدها إعلانات الموقع والتقويم
         ordered = sorted(
             filtered_new_items,
             key=lambda i: i["id"].startswith(("site_discussion_", "cal_event_")),
@@ -723,8 +789,9 @@ def process_subscriber(sub: Dict, http: requests.Session) -> None:
     elif filtered_new_items:
         send_email_to_student(email, filtered_new_items)
         print(f"📩 تم إرسال ({len(filtered_new_items)}) إشعار للمشترك رقم #{sub_id}.")
+    else:
+        print(f"✔️ المشترك #{sub_id}: لا توجد تحديثات جديدة منذ آخر فحص.")
 
-    # التحديث بيحصل بعد نجاح الإرسال فقط؛ لو الإيميل فشل هتتعاد المحاولة في الدورة القادمة.
     for item in all_items:
         seen_ids.add(item["id"])
     if is_first_run:
@@ -757,7 +824,7 @@ def main() -> int:
     for sub in subscribers:
         try:
             process_subscriber(sub, http)
-        except Exception as exc:  # مشترك واحد ما يوقعش الباقي
+        except Exception as exc:
             failures += 1
             print(f"::warning::فشل معالجة المشترك #{sub.get('id')} — {describe_error(exc)}")
 
