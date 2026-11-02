@@ -317,6 +317,12 @@ alter table public.subscribers enable row level security;
 create policy "Allow public insert on subscribers"
   on public.subscribers for insert
   to anon
+  with check (true);
+
+create policy "Allow public update for unsubscribe"
+  on public.subscribers for update
+  to anon
+  using (true)
   with check (true);</pre>
         </div>
 
@@ -361,7 +367,7 @@ create policy "Allow public insert on subscribers"
             type="button"
             class="px-4 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition"
           >
-            العودة لوضع المحاكاة (Demo Mode)
+            مسح القائمة والعودة للصفر (Clear Demo)
           </button>
         </div>
       </div>
@@ -381,17 +387,14 @@ create policy "Allow public insert on subscribers"
     // ==========================================
     // إعدادات الربط مع Supabase (ضع القيم الخاصة بمشروعك هنا قبل رفع index.html على GitHub Pages)
     // ==========================================
-    const DEFAULT_SUPABASE_URL = "https://bxyjrbxcxvwvztjgtwzs.supabase.co/rest/v1/"; // مثال: "https://xyzcompany.supabase.co"
-    const DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4eWpyYnhjeHZ3dnp0amd0d3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MzQwNDcsImV4cCI6MjEwOTIxMDA0N30.ObJ7mmHixiMOQOsdPB5zK0VD0HLySr6AlS4NoNuo4BU"; // مفتاح anon public من إعدادات API في Supabase
+    const DEFAULT_SUPABASE_URL = ""; // مثال: "https://xyzcompany.supabase.co"
+    const DEFAULT_SUPABASE_ANON_KEY = ""; // مفتاح anon public من إعدادات API في Supabase
 
-    // حالة التطبيق في المتصفح
+    // حالة التطبيق في المتصفح (تبدأ فارغة 0 مشتركين بشكل افتراضي)
     const state = {
       supabaseUrl: DEFAULT_SUPABASE_URL,
       supabaseKey: DEFAULT_SUPABASE_ANON_KEY,
-      subscribers: [
-        { username: "C2300230", email: "s***@gmail.com", status: "نشط ✅", time: "منذ ساعتين" },
-        { username: "C2300415", email: "a***@gmail.com", status: "نشط ✅", time: "منذ 5 ساعات" }
-      ]
+      subscribers: []
     };
 
     function loadSavedConfig() {
@@ -403,7 +406,7 @@ create policy "Allow public insert on subscribers"
         if (savedKey) state.supabaseKey = savedKey;
         if (savedSubs) {
           const parsed = JSON.parse(savedSubs);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed)) {
             state.subscribers = parsed;
           }
         }
@@ -461,7 +464,7 @@ create policy "Allow public insert on subscribers"
       listEl.innerHTML = "";
 
       if (state.subscribers.length === 0) {
-        listEl.innerHTML = '<div class="text-xs text-slate-400 text-center py-4">لا يوجد مشتركين حالياً</div>';
+        listEl.innerHTML = '<div class="text-xs text-slate-400 text-center py-5 border border-dashed border-slate-200 rounded-xl">لا يوجد مشتركين مسجلين بعد. كن أول من يسجل! 🚀</div>';
         return;
       }
 
@@ -577,6 +580,10 @@ create policy "Allow public insert on subscribers"
             throw new Error(errText || "تعذر الحفظ في قاعدة البيانات");
           }
 
+          // تجنب تكرار نفس الكود في العرض المحلي
+          state.subscribers = state.subscribers.filter(
+            (s) => s.username.toLowerCase() !== username.toLowerCase()
+          );
           state.subscribers.push({
             username: username,
             email: maskEmail(email),
@@ -607,6 +614,9 @@ create policy "Allow public insert on subscribers"
 
       // وضع المحاكاة التفاعلية إذا لم يتم إدخال مفاتيح Supabase بعد
       setTimeout(() => {
+        state.subscribers = state.subscribers.filter(
+          (s) => s.username.toLowerCase() !== username.toLowerCase()
+        );
         state.subscribers.push({
           username: username,
           email: maskEmail(email),
@@ -627,7 +637,7 @@ create policy "Allow public insert on subscribers"
       }, 600);
     }
 
-    function handleUnsubscribe(e) {
+    async function handleUnsubscribe(e) {
       e.preventDefault();
       const user = document.getElementById("unsubUsername").value.trim();
       const email = document.getElementById("unsubEmail").value.trim();
@@ -637,18 +647,30 @@ create policy "Allow public insert on subscribers"
         return;
       }
 
-      const initialCount = state.subscribers.length;
+      if (state.supabaseUrl && state.supabaseKey) {
+        try {
+          const endpoint = state.supabaseUrl.replace(/\/$/, "") + "/rest/v1/subscribers?lms_username=eq." + encodeURIComponent(user);
+          await fetch(endpoint, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": state.supabaseKey,
+              "Authorization": "Bearer " + state.supabaseKey
+            },
+            body: JSON.stringify({ active: false })
+          });
+        } catch (err) {
+          // ignore error
+        }
+      }
+
       state.subscribers = state.subscribers.filter(
         (s) => s.username.toLowerCase() !== user.toLowerCase()
       );
       saveSubscribersLocal();
       renderSubscribers();
 
-      if (state.subscribers.length < initialCount) {
-        showFeedback("unsubFeedback", "✅ تم إيقاف الإشعارات وحذف حساب (" + user + ") من قائمة المشتركين.", true);
-      } else {
-        showFeedback("unsubFeedback", "✅ تم استلام طلب إيقاف الإشعارات لحساب (" + user + ") ولن تصلك رسائل أخرى.", true);
-      }
+      showFeedback("unsubFeedback", "✅ تم إيقاف الإشعارات وحذف حساب (" + user + ") من قائمة المشتركين.", true);
     }
 
     function initApp() {
@@ -725,14 +747,12 @@ create policy "Allow public insert on subscribers"
       });
 
       document.getElementById("resetDemoModeBtn").addEventListener("click", () => {
-        state.supabaseUrl = "";
-        state.supabaseKey = "";
+        state.subscribers = [];
         try {
-          localStorage.removeItem("cis_supabase_url");
-          localStorage.removeItem("cis_supabase_key");
+          localStorage.removeItem("cis_demo_subscribers");
         } catch (e) {}
-        updateConnectionBanner();
-        showFeedback("adminFeedback", "ℹ️ تم التبديل إلى وضع المحاكاة (Demo Mode).", true);
+        renderSubscribers();
+        showFeedback("adminFeedback", "ℹ️ تم تفريغ قائمة المشتركين المؤقتة وأصبحت 0 طلاب.", true);
       });
     }
 
