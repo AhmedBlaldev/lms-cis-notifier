@@ -4,10 +4,10 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+// إذا قمت بتمرير مفتاح الخدمة في هيدر X-Export-Key سيعرض لك المفتاح الدقيق المستخدم للتشفير
+const cryptoSecret = (Deno.env.get("ENCRYPTION_KEY") || "cis-lms-notifier-shared-aes-key-2026").trim();
 
 // ---- تشغيل الـ GitHub workflow فوراً بعد التسجيل (اختياري) ----
-// لو GH_DISPATCH_TOKEN مش متضاف في Edge Function Secrets، التسجيل بيشتغل عادي
-// والترحيب بيوصل في فحص الساعة الجاي.
 const ghToken = Deno.env.get("GH_DISPATCH_TOKEN") ?? "";
 const ghRepo = Deno.env.get("GH_REPO") ?? "AhmedBlaldev/lms-cis-notifier";
 const ghWorkflow = Deno.env.get("GH_WORKFLOW") ?? "lms_check.yml";
@@ -34,15 +34,31 @@ function base64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+async function keyFingerprint(secret: string) {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret)),
+  );
+  return Array.from(digest.slice(0, 4))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function encryptionKey() {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(serviceRoleKey));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(cryptoSecret),
+  );
   return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt"]);
 }
 
 async function encryptPassword(password: string) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await encryptionKey(), new TextEncoder().encode(password)),
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      await encryptionKey(),
+      new TextEncoder().encode(password),
+    ),
   );
   const combined = new Uint8Array(iv.length + encrypted.length);
   combined.set(iv);
@@ -53,13 +69,20 @@ async function encryptPassword(password: string) {
 async function hmacToken(email: string) {
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(serviceRoleKey),
+    new TextEncoder().encode(cryptoSecret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(email));
-  return base64(new Uint8Array(signature)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(email),
+  );
+  return base64(new Uint8Array(signature))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
 }
 
 async function supabaseRequest(path: string, init: RequestInit = {}) {
@@ -74,7 +97,6 @@ async function supabaseRequest(path: string, init: RequestInit = {}) {
   });
 }
 
-// يشغّل workflow الترحيب (welcome_only=true) — بيرجع true لو GitHub قبل الطلب.
 async function triggerWelcomeRun(): Promise<boolean> {
   if (!ghToken) return false;
   try {
@@ -93,7 +115,8 @@ async function triggerWelcomeRun(): Promise<boolean> {
         signal: AbortSignal.timeout(8000),
       },
     );
-    if (!res.ok) console.error("GitHub dispatch failed:", res.status, await res.text());
+    if (!res.ok)
+      console.error("GitHub dispatch failed:", res.status, await res.text());
     return res.ok;
   } catch (error) {
     console.error("GitHub dispatch error:", error);
@@ -102,31 +125,56 @@ async function triggerWelcomeRun(): Promise<boolean> {
 }
 
 Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (request.method !== "POST") return response({ error: "Method not allowed" }, 405);
-  if (!supabaseUrl || !serviceRoleKey) return response({ error: "Service unavailable" }, 503);
+  if (request.method === "OPTIONS")
+    return new Response(null, { headers: corsHeaders });
+  if (request.method !== "POST")
+    return response({ error: "Method not allowed" }, 405);
+  if (!supabaseUrl || !serviceRoleKey)
+    return response({ error: "Service unavailable" }, 503);
 
   try {
     const body = await request.json();
     const action = typeof body.action === "string" ? body.action : "";
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const email =
+      typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+
+    // أمر مساعد لفحص بصمة مفتاح التشفير الحالي في الـ Edge Function
+    if (action === "key_info") {
+      return response({
+        ok: true,
+        edge_key_fingerprint: await keyFingerprint(cryptoSecret),
+        using_custom_encryption_key: Boolean(Deno.env.get("ENCRYPTION_KEY")),
+      });
+    }
 
     if (action === "subscribe") {
-      const username = typeof body.lms_username === "string" ? body.lms_username.trim() : "";
-      const password = typeof body.lms_password === "string" ? body.lms_password : "";
-      const prefs = body.notify_prefs && typeof body.notify_prefs === "object"
-        ? body.notify_prefs
-        : { quiz: true, assign: true, forum: true, resource: true };
+      const username =
+        typeof body.lms_username === "string" ? body.lms_username.trim() : "";
+      const password =
+        typeof body.lms_password === "string" ? body.lms_password : "";
+      const prefs =
+        body.notify_prefs && typeof body.notify_prefs === "object"
+          ? body.notify_prefs
+          : { quiz: true, assign: true, forum: true, resource: true };
 
-      if (!username || username.length > 100 || !password || password.length > 500 || !validEmail(email) || email.length > 254) {
+      if (
+        !username ||
+        username.length > 100 ||
+        !password ||
+        password.length > 500 ||
+        !validEmail(email) ||
+        email.length > 254
+      ) {
         return response({ error: "Invalid subscription details" }, 400);
       }
 
       const existing = await supabaseRequest(
         `subscribers?lms_username=eq.${encodeURIComponent(username)}&select=id&limit=1`,
       );
-      if (!existing.ok) return response({ error: "Unable to validate subscription" }, 502);
-      if ((await existing.json()).length > 0) return response({ error: "This LMS account is already subscribed" }, 409);
+      if (!existing.ok)
+        return response({ error: "Unable to validate subscription" }, 502);
+      if ((await existing.json()).length > 0)
+        return response({ error: "This LMS account is already subscribed" }, 409);
 
       const upstream = await supabaseRequest("subscribers", {
         method: "POST",
@@ -139,23 +187,32 @@ Deno.serve(async (request) => {
           active: true,
         }),
       });
-      if (!upstream.ok) return response({ error: "Unable to save subscription" }, 502);
+      if (!upstream.ok)
+        return response({ error: "Unable to save subscription" }, 502);
 
-      // الطالب اتسجل → شغّل الـ workflow فوراً عشان الترحيب يوصله خلال دقيقة تقريباً
       const welcomeTriggered = await triggerWelcomeRun();
       return response({ ok: true, welcome_triggered: welcomeTriggered });
     }
 
     if (action === "unsubscribe") {
       const token = typeof body.token === "string" ? body.token : "";
-      if (!validEmail(email) || email.length > 254 || !token || token !== await hmacToken(email)) {
+      if (
+        !validEmail(email) ||
+        email.length > 254 ||
+        !token ||
+        token !== (await hmacToken(email))
+      ) {
         return response({ error: "Invalid unsubscribe link" }, 403);
       }
-      const upstream = await supabaseRequest(`subscribers?email=eq.${encodeURIComponent(email)}`, {
-        method: "DELETE",
-        headers: { Prefer: "return=minimal" },
-      });
-      if (!upstream.ok) return response({ error: "Unable to unsubscribe" }, 502);
+      const upstream = await supabaseRequest(
+        `subscribers?email=eq.${encodeURIComponent(email)}`,
+        {
+          method: "DELETE",
+          headers: { Prefer: "return=minimal" },
+        },
+      );
+      if (!upstream.ok)
+        return response({ error: "Unable to unsubscribe" }, 502);
       return response({ ok: true });
     }
 

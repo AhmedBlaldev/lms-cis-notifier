@@ -61,7 +61,7 @@ def _clean_supabase_url(raw_url: str) -> str:
 SUPABASE_URL = _clean_supabase_url(os.getenv("SUPABASE_URL", ""))
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 # مفتاح تشفير إضافي اختياري في حال كان SUPABASE_SERVICE_ROLE_KEY في Edge Function مختلفاً
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "").strip()
+ENCRYPTION_KEY = (os.getenv("ENCRYPTION_KEY") or "cis-lms-notifier-shared-aes-key-2026").strip()
 
 # true => افحص المشتركين الجدد فقط (اللي seen_ids بتاعتهم فاضية) وابعتلهم الترحيب
 WELCOME_ONLY = os.getenv("WELCOME_ONLY", "false").strip().lower() in {"1", "true", "yes"}
