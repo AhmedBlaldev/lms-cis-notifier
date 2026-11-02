@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 سكريبت إشعارات المنصة متعدد المستخدمين (Multi-User CIS LMS Notifier)
-يقرأ قائمة الطلاب المشتركين من قاعدة بيانات Supabase (أو المتغيرات المحلية)،
-يفحص حساب كل طالب على منصة lmscis.com، ويرسل لكل طالب إشعاراته الخاصة على بريده الشخصي.
+- يقرأ قائمة الطلاب المشتركين من قاعدة بيانات Supabase.
+- يحترم تفضيلات كل طالب (كويزات، أسايمنتات، إعلانات، محاضرات).
+- يرسل رسالة ترحيب وتأكيد عند اشتراك الطالب لأول مرة.
+- يضع رابط إلغاء اشتراك مباشر (Unsubscribe) في أسفل كل إيميل بحيث يفتح صفحة الإلغاء ويمسح الطالب من قاعدة البيانات بضغطة زر.
 """
 
 import html
-import json
 import os
 import re
 import smtplib
@@ -15,20 +16,25 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
 
-# إعدادات المنصة وخادم البريد المركزي (تُقرأ من GitHub Secrets)
+# ==========================================
+# إعدادات المنصة، الموقع، وخادم البريد المركزي (تُقرأ من GitHub Secrets)
+# ==========================================
 LMS_BASE_URL = os.getenv("LMS_BASE_URL", "https://lmscis.com").rstrip("/")
+WEB_APP_URL = os.getenv(
+    "WEB_APP_URL", "https://ahmedblaldev.github.io/lms-cis-notifier/"
+).rstrip("/")
+
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 EMAIL_SENDER = os.getenv("EMAIL_SENDER", "").strip()
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "").replace(" ", "")
 
-# إعدادات قاعدة بيانات Supabase لجلب الطلاب المشتركين في الموقع
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 
@@ -57,6 +63,27 @@ def safe_email_url(value: object) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return ""
     return html.escape(url, quote=True)
+
+
+def build_unsubscribe_url(student_email: str) -> str:
+    """بناء رابط إلغاء الاشتراك المباشر الخاص بالطالب."""
+    encoded_email = quote(student_email.strip().lower())
+    return f"{WEB_APP_URL}/?action=unsubscribe&email={encoded_email}"
+
+
+def is_item_allowed_by_prefs(item_type: str, prefs: Optional[Dict]) -> bool:
+    """التحقق مما إذا كان نوع النشاط مفعلاً في اختيارات الطالب."""
+    if not isinstance(prefs, dict):
+        return True
+    if item_type == "quiz":
+        return bool(prefs.get("quiz", True))
+    if item_type in ("assign", "calendar_event"):
+        return bool(prefs.get("assign", True))
+    if item_type in ("forum", "discussion"):
+        return bool(prefs.get("forum", True))
+    if item_type in ("resource", "folder", "url", "page"):
+        return bool(prefs.get("resource", True))
+    return True
 
 
 class LMSNotifier:
@@ -288,16 +315,105 @@ class LMSNotifier:
 
         return discovered
 
-    def scan_all(self) -> List[Dict[str, str]]:
-        all_items: List[Dict[str, str]] = []
-        courses = self.get_enrolled_courses()
-        for course in courses:
-            all_items.extend(self.scan_course(course))
-        return all_items
+    def scan_site_announcements_and_calendar(self) -> List[Dict[str, str]]:
+        discovered: List[Dict[str, str]] = []
+
+        try:
+            resp = self.session.get(f"{self.base_url}/?redirect=0", timeout=30)
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for link in soup.find_all("a", href=re.compile(r"/mod/forum/discuss\.php\?d=\d+")):
+                href = link.get("href", "")
+                m = re.search(r"d=(\d+)", href)
+                if not m:
+                    continue
+                disc_id = m.group(1)
+                subject = " ".join(link.get_text().split())
+                if not subject or subject.lower() in {"discuss this topic", "permalink"}:
+                    continue
+                unique_id = f"site_discussion_{disc_id}"
+                if any(i["id"] == unique_id for i in discovered):
+                    continue
+                discovered.append(
+                    {
+                        "id": unique_id,
+                        "course_name": "إعلانات المعهد العامة (الصفحة الرئيسية)",
+                        "type": "discussion",
+                        "type_label": "إعلان عام من المعهد / الدكاترة",
+                        "event_name": subject,
+                        "url": href.split("#")[0],
+                        "details": self._fetch_discussion_snippet(href.split("#")[0]),
+                    }
+                )
+        except Exception:
+            pass
+
+        try:
+            cal_url = f"{self.base_url}/calendar/view.php?view=upcoming"
+            resp = self.session.get(cal_url, timeout=30)
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for event_card in soup.find_all("div", attrs={"data-type": "event"}):
+                event_id = event_card.get("data-event-id")
+                title_el = event_card.find(["h3", "h4"], class_=re.compile(r"name"))
+                event_title = " ".join(title_el.get_text().split()) if title_el else "حدث بالتقويم"
+
+                course_link = event_card.find("a", href=re.compile(r"/course/view\.php\?id=\d+"))
+                course_name = (
+                    " ".join(course_link.get_text().split())
+                    if course_link
+                    else "تقويم المنصة العام"
+                )
+
+                date_el = event_card.find("div", class_=re.compile(r"row"))
+                details = " ".join(date_el.get_text(separator=" ").split()) if date_el else ""
+
+                action_link = event_card.find("a", class_=re.compile(r"card-link"))
+                url = action_link["href"] if action_link and action_link.get("href") else cal_url
+
+                if event_id:
+                    discovered.append(
+                        {
+                            "id": f"cal_event_{event_id}",
+                            "course_name": course_name,
+                            "type": "calendar_event",
+                            "type_label": ACTIVITY_TYPES_AR["calendar_event"],
+                            "event_name": event_title,
+                            "url": url,
+                            "details": details[:300],
+                        }
+                    )
+        except Exception:
+            pass
+
+        return discovered
 
 
-def build_email_html(new_items: List[Dict[str, str]]) -> str:
+def build_email_html(
+    new_items: List[Dict[str, str]],
+    student_email: str,
+    is_welcome: bool = False,
+    courses_names: Optional[List[str]] = None,
+) -> str:
     now_str = datetime.now(CAIRO_TZ).strftime("%Y-%m-%d %I:%M %p")
+    unsub_url = safe_email_url(build_unsubscribe_url(student_email))
+
+    welcome_banner = ""
+    if is_welcome:
+        courses_list_html = ""
+        if courses_names:
+            badges = " ".join(
+                f'<span style="display:inline-block;background:#e8f0fe;color:#1967d2;padding:4px 10px;border-radius:8px;font-size:12px;margin:3px;font-weight:bold;">{safe_email_text(c)}</span>'
+                for c in courses_names
+            )
+            courses_list_html = f'<div style="margin-top:10px;"><strong>المواد التي تتم متابعتها الآن ({len(courses_names)}):</strong><br><div style="margin-top:6px;">{badges}</div></div>'
+
+        welcome_banner = f"""
+        <div style="background:#e6f4ea;border:1px solid #ceead6;border-radius:10px;padding:16px;margin-bottom:18px;color:#137333;font-size:14px;">
+            <strong style="font-size:16px;">🎉 مرحباً بك! تم تفعيل منبه منصة المعهد لحسابك بنجاح</strong>
+            <p style="margin:6px 0 0;">سيقوم النظام بفحص حسابك كل ساعة وإرسال أي كويز أو أسايمنت أو محاضرة جديدة فور نزولها. بالأسفل عينة من أحدث العناصر الموجودة حالياً في منصتك:</p>
+            {courses_list_html}
+        </div>
+        """
+
     cards_html = ""
     for item in new_items:
         course_name = safe_email_text(item.get("course_name", ""))
@@ -315,8 +431,8 @@ def build_email_html(new_items: List[Dict[str, str]]) -> str:
             badge_color = "#188038"
 
         details_block = (
-            f'<div style="margin-top:10px;padding:10px;background:#f8f9fa;border-right:3px solid {badge_color};border-radius:4px;font-size:14px;">'
-            f"<strong>التفاصيل:</strong><br>{details}</div>"
+            f'<div style="margin-top:10px;padding:10px;background:#f8f9fa;border-right:3px solid {badge_color};border-radius:4px;font-size:14px;color:#3c4043;">'
+            f"<strong>التفاصيل / المحتوى:</strong><br>{details}</div>"
             if details
             else ""
         )
@@ -327,10 +443,10 @@ def build_email_html(new_items: List[Dict[str, str]]) -> str:
         )
 
         cards_html += f"""
-        <div style="border:1px solid #dadce0;border-radius:8px;padding:16px;margin-bottom:16px;background:#fff;">
+        <div style="border:1px solid #dadce0;border-radius:10px;padding:16px;margin-bottom:16px;background:#fff;">
             <span style="background:{badge_color};color:#fff;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:bold;">{type_label}</span>
             <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:15px;">
-                <tr><td style="padding:5px 0;color:#5f6368;width:110px;"><strong>📚 اسم المادة:</strong></td><td style="font-weight:bold;">{course_name}</td></tr>
+                <tr><td style="padding:5px 0;color:#5f6368;width:110px;"><strong>📚 اسم المادة:</strong></td><td style="font-weight:bold;color:#1f1f1f;">{course_name}</td></tr>
                 <tr><td style="padding:5px 0;color:#5f6368;"><strong>📌 اسم الحدث:</strong></td><td style="color:#0b57d0;font-weight:bold;">{event_name}</td></tr>
             </table>
             {details_block}
@@ -340,23 +456,39 @@ def build_email_html(new_items: List[Dict[str, str]]) -> str:
 
     return f"""
     <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"></head>
-    <body style="font-family:Tahoma,Arial,sans-serif;direction:rtl;text-align:right;background:#f1f3f4;padding:20px;">
-        <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <body style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;text-align:right;background:#f1f3f4;padding:20px;margin:0;">
+        <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
             <div style="background:#1a73e8;color:#fff;padding:18px 24px;">
                 <h2 style="margin:0;font-size:20px;">🔔 إشعار جديد من منصة المعهد (CIS LMS)</h2>
-                <p style="margin:6px 0 0;font-size:13px;">توقيت الفحص (القاهرة): {now_str} | عدد التحديثات: {len(new_items)}</p>
+                <p style="margin:6px 0 0;font-size:13px;opacity:0.9;">توقيت الفحص (القاهرة): {now_str} | عدد التحديثات: {len(new_items)}</p>
             </div>
-            <div style="padding:20px;">{cards_html}</div>
+            <div style="padding:20px;">
+                {welcome_banner}
+                {cards_html}
+            </div>
+            <div style="background:#f8f9fa;padding:16px 24px;text-align:center;font-size:12px;color:#5f6368;border-top:1px solid #e8eaed;line-height:1.8;">
+                تم الإرسال تلقائياً بواسطة منبه منصة المعهد (<a href="https://lmscis.com" style="color:#1a73e8;text-decoration:none;">lmscis.com</a>)<br>
+                إذا كنت لا ترغب في استقبال هذه الرسائل مرة أخرى، يمكنك
+                <a href="{unsub_url}" style="color:#d93025;font-weight:bold;text-decoration:underline;">إلغاء الاشتراك (Unsubscribe)</a>
+                بضغطة واحدة.
+            </div>
         </div>
     </body></html>
     """
 
 
-def send_email_to_student(receiver_email: str, new_items: List[Dict[str, str]]) -> None:
+def send_email_to_student(
+    receiver_email: str,
+    new_items: List[Dict[str, str]],
+    is_welcome: bool = False,
+    courses_names: Optional[List[str]] = None,
+) -> None:
     if not new_items or not receiver_email:
         return
 
-    if len(new_items) == 1:
+    if is_welcome:
+        subject = "✅ تم تفعيل إشعارات منصة المعهد (CIS LMS) بنجاح!"
+    elif len(new_items) == 1:
         first = new_items[0]
         subject = f"🔔 [{first['course_name']}] {first['type_label']}: {first['event_name']}"
     else:
@@ -364,11 +496,21 @@ def send_email_to_student(receiver_email: str, new_items: List[Dict[str, str]]) 
         subject = f"🔔 ({len(new_items)}) تحديثات جديدة على المنصة - المواد: {courses_summary}"
     subject = subject.replace("\r", " ").replace("\n", " ")
 
+    unsub_url = build_unsubscribe_url(receiver_email)
+
     msg = MIMEMultipart("alternative")
     msg["From"] = EMAIL_SENDER
     msg["To"] = receiver_email
     msg["Subject"] = subject
-    msg.attach(MIMEText(build_email_html(new_items), "html", "utf-8"))
+    msg["List-Unsubscribe"] = f"<{unsub_url}>"
+
+    html_body = build_email_html(
+        new_items,
+        student_email=receiver_email,
+        is_welcome=is_welcome,
+        courses_names=courses_names,
+    )
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
         server.starttls()
@@ -377,7 +519,6 @@ def send_email_to_student(receiver_email: str, new_items: List[Dict[str, str]]) 
 
 
 def fetch_active_subscribers() -> List[Dict]:
-    """جلب قائمة الطلاب المشتركين من جدول subscribers في Supabase."""
     headers = {
         "apikey": SUPABASE_SERVICE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
@@ -389,7 +530,6 @@ def fetch_active_subscribers() -> List[Dict]:
 
 
 def update_subscriber_seen_ids(sub_id: int, seen_ids: List[str]) -> None:
-    """تحديث قائمة العناصر التي تمت رؤيتها لكل طالب في Supabase."""
     headers = {
         "apikey": SUPABASE_SERVICE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
@@ -411,20 +551,36 @@ def main():
         username = sub["lms_username"]
         password = sub["lms_password"]
         email = sub["email"]
+        prefs = sub.get("notify_prefs") or {}
         seen_ids = set(sub.get("seen_ids") or [])
 
         notifier = LMSNotifier(LMS_BASE_URL, username, password)
         if not notifier.login():
-            print(f"⚠️ تعذر تسجيل الدخول لأحد المشتركين (ID: {sub_id}).")
+            print(f"⚠️ تعذر تسجيل الدخول للمشترك رقم #{sub_id}.")
             continue
 
-        all_items = notifier.scan_all()
-        is_first_run = len(seen_ids) == 0
-        new_items = [item for item in all_items if item["id"] not in seen_ids]
+        courses = notifier.get_enrolled_courses()
+        courses_names = [c["name"] for c in courses]
 
-        if new_items:
-            items_to_send = new_items[:4] if is_first_run else new_items
-            send_email_to_student(email, items_to_send)
+        all_items: List[Dict[str, str]] = []
+        all_items.extend(notifier.scan_site_announcements_and_calendar())
+        for course in courses:
+            all_items.extend(notifier.scan_course(course))
+
+        is_first_run = len(seen_ids) == 0
+        unseen_items = [item for item in all_items if item["id"] not in seen_ids]
+        filtered_new_items = [
+            item for item in unseen_items if is_item_allowed_by_prefs(item["type"], prefs)
+        ]
+
+        if filtered_new_items:
+            items_to_send = filtered_new_items[:4] if is_first_run else filtered_new_items
+            send_email_to_student(
+                email,
+                items_to_send,
+                is_welcome=is_first_run,
+                courses_names=courses_names,
+            )
             print(f"📩 تم إرسال ({len(items_to_send)}) إشعار للمشترك رقم #{sub_id}.")
 
         for item in all_items:

@@ -1,109 +1,129 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" class="scroll-smooth">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CIS LMS Notifier — تفعيل إشعارات المنصة</title>
+  <title>CIS LMS Notifier — إشعارات منصة المعهد الفورية</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Cairo', 'Inter', 'sans-serif'],
+            mono: ['Inter', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     body {
       font-family: 'Cairo', 'Inter', sans-serif;
-      background: radial-gradient(circle at top right, #eff6ff 0%, #f8fafc 45%, #eef2ff 100%);
     }
     .code-font {
       font-family: 'Inter', monospace;
       direction: ltr;
       text-align: left;
     }
-    .glass-card {
-      background: rgba(255, 255, 255, 0.94);
-      backdrop-filter: blur(12px);
+    .hero-bg-light {
+      background: radial-gradient(circle at top right, #dbeafe 0%, #f8fafc 45%, #eef2ff 100%);
+    }
+    .dark .hero-bg-light {
+      background: radial-gradient(circle at top right, #0f172a 0%, #090d16 55%, #111827 100%);
     }
   </style>
 </head>
-<body class="min-h-screen text-slate-800 flex flex-col justify-between">
+<body class="hero-bg-light min-h-screen text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-colors duration-200">
 
-  <!-- Top Navigation Bar -->
-  <header class="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-30">
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+  <!-- Top Navigation Header -->
+  <header class="border-b border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-30">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3">
+      <!-- Brand Logo -->
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shadow-blue-500/30 font-bold text-lg">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/25 font-bold text-lg">
           🔔
         </div>
         <div>
-          <h1 class="font-bold text-base sm:text-lg text-slate-900 leading-tight">منبه منصة المعهد (CIS LMS)</h1>
-          <p class="text-xs text-slate-500">إشعارات فورية للكويزات والأسايمنتات والمحاضرات على بريدك</p>
+          <h1 class="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white leading-tight">CIS LMS Notifier</h1>
+          <p class="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">منبه إشعارات منصة المعهد على البريد الشخصي</p>
         </div>
       </div>
 
-      <!-- Mode Switcher Tabs -->
-      <nav class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
-        <button id="tabStudentBtn" type="button" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all bg-white text-blue-600 shadow-sm">
-          👨‍🎓 تسجيل طالب
+      <!-- Navigation & Theme Controls -->
+      <div class="flex items-center gap-2">
+        <nav class="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/70 dark:border-slate-700">
+          <button id="tabStudentBtn" type="button" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm">
+            تفعيل الإشعارات
+          </button>
+          <button id="tabUnsubscribeBtn" type="button" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+            إلغاء الاشتراك
+          </button>
+        </nav>
+
+        <button
+          id="themeToggleBtn"
+          type="button"
+          title="تغيير المظهر (ليلي / نهاري)"
+          class="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition"
+        >
+          🌙
         </button>
-        <button id="tabUnsubscribeBtn" type="button" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900">
-          🔕 إيقاف الإشعارات
-        </button>
-        <button id="tabAdminBtn" type="button" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900">
-          ⚙️ إعدادات الربط (Supabase)
-        </button>
-      </nav>
+      </div>
     </div>
   </header>
 
-  <!-- Main Content Container -->
-  <main class="max-w-5xl mx-auto w-full px-4 sm:px-6 py-8 flex-1">
+  <!-- Main Content -->
+  <main class="max-w-3xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-10 flex-1">
 
-    <!-- Status / Connection Banner -->
-    <div id="connectionBanner" class="mb-6 rounded-2xl border border-blue-200 bg-blue-50/90 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-      <div class="flex items-center gap-2.5 text-xs sm:text-sm text-blue-900">
-        <span id="connBadgeDot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
-        <span id="connStatusText" class="font-medium">وضع المعاينة التفاعلية نشط — يمكنك ربط قاعدة بيانات Supabase من تبويب (إعدادات الربط) لحفظ الطلاب فعلياً.</span>
-      </div>
-      <button id="goToConfigBtn" type="button" class="text-xs font-bold text-blue-700 hover:text-blue-900 underline">
-        ضبط الربط السحابي ⬅
-      </button>
-    </div>
+    <!-- VIEW 1: SUBSCRIBE VIEW -->
+    <section id="viewStudent" class="space-y-6">
 
-    <!-- VIEW 1: STUDENT SUBSCRIPTION VIEW -->
-    <section id="viewStudent" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-
-      <!-- Left/Main Column: Registration Card -->
-      <div class="lg:col-span-7 glass-card rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/50 p-6 sm:p-8">
-        <div class="mb-6">
-          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 mb-2.5">
-            ✨ مجاني لطلاب معهد CIS
+      <!-- Main Hero Card -->
+      <div class="bg-white/95 dark:bg-slate-900/95 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-none p-6 sm:p-8">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60">
+            ✨ مجاني لطلاب معهد CIS — يعمل تلقائياً كل ساعة
           </span>
-          <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900">فعّل إشعارات المنصة في خطوة واحدة</h2>
-          <p class="text-sm text-slate-600 mt-1">
-            اكتب بيانات دخول المنصة والإيميل الشخصي اللي حابب توصلك عليه التنبيهات أول ما أي دكتور ينزل كويز أو أسايمنت أو محاضرة.
-          </p>
+          <button
+            id="openPreviewModalBtn"
+            type="button"
+            class="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+          >
+            <span>👁️ معاينة شكل الإيميل</span>
+          </button>
         </div>
 
-        <form id="subscribeForm" class="space-y-4" novalidate>
-          <!-- Field 1: LMS Username -->
+        <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+          خلّي إشعارات المنصة توصلك على إيميلك أول بأول
+        </h2>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+          بمجرد نزول أي <strong>كويز</strong> أو <strong>أسايمنت</strong> أو <strong>إعلان من الدكتور</strong> أو <strong>محاضرة جديدة</strong> على <span class="code-font text-xs font-semibold text-blue-600 dark:text-blue-400">lmscis.com</span>، هيوصلك إيميل منسق فيه اسم المادة واسم الحدث والرابط المباشر.
+        </p>
+
+        <form id="subscribeForm" class="mt-6 space-y-4" novalidate>
+          <!-- 1. Student ID / LMS Username -->
           <div>
-            <label for="lmsUsername" class="block text-sm font-bold text-slate-700 mb-1.5">
-              1. كود الطالب أو إيميل المنصة (<span class="code-font text-xs text-blue-600">lmscis.com</span>)
+            <label for="lmsUsername" class="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-1.5">
+              1. كود الطالب أو إيميل المنصة
             </label>
-            <div class="relative">
-              <input
-                id="lmsUsername"
-                type="text"
-                required
-                placeholder="مثال: C2300230 أو C2300230@cis.edu.eg"
-                class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
-              />
-            </div>
-            <p class="text-xs text-slate-500 mt-1">تقدر تكتب الكود فقط أو الكود متبوعاً بـ <span class="code-font">@cis.edu.eg</span></p>
+            <input
+              id="lmsUsername"
+              type="text"
+              required
+              autocomplete="username"
+              placeholder="مثال: C2300230 أو C2300230@cis.edu.eg"
+              class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/80 px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-blue-600 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
+            />
           </div>
 
-          <!-- Field 2: LMS Password -->
+          <!-- 2. LMS Password -->
           <div>
-            <label for="lmsPassword" class="block text-sm font-bold text-slate-700 mb-1.5">
+            <label for="lmsPassword" class="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-1.5">
               2. كلمة مرور المنصة (LMS Password)
             </label>
             <div class="relative flex items-center">
@@ -111,404 +131,246 @@
                 id="lmsPassword"
                 type="password"
                 required
-                placeholder="اكتب باسورد حسابك على المنصة"
-                class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pl-12 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
+                autocomplete="current-password"
+                placeholder="اكتب باسورد حسابك في المنصة"
+                class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/80 px-4 py-3 pl-14 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-blue-600 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
               />
               <button
                 id="togglePwdBtn"
                 type="button"
-                class="absolute left-3 text-xs font-semibold text-slate-500 hover:text-blue-600 px-2 py-1 rounded"
+                class="absolute left-3 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-blue-600 px-2 py-1 rounded"
               >
                 إظهار
               </button>
             </div>
-            <p class="text-xs text-emerald-700 mt-1 flex items-center gap-1">
-              <span>🔒</span> يتم حفظها بشكل آمن لاستخدامها فقط بواسطة البوت لفحص موادك كل ساعة.
-            </p>
           </div>
 
-          <!-- Field 3: Personal Email -->
+          <!-- 3. Personal Email -->
           <div>
-            <label for="personalEmail" class="block text-sm font-bold text-slate-700 mb-1.5">
+            <label for="personalEmail" class="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-1.5">
               3. بريدك الشخصي لاستقبال الإشعارات (Gmail / Outlook)
             </label>
             <input
               id="personalEmail"
               type="email"
               required
+              autocomplete="email"
               placeholder="yourname@gmail.com"
-              class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
+              class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/80 px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-blue-600 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
             />
           </div>
 
-          <!-- Optional Notification Filters -->
-          <div class="pt-2">
-            <span class="block text-xs font-bold text-slate-600 mb-2">أنواع الإشعارات المطلوب إرسالها:</span>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold cursor-pointer hover:bg-blue-50/50">
+          <!-- 4. Custom Notification Preferences -->
+          <div class="pt-1">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-600 dark:text-slate-300">اختر أنواع الإشعارات اللي تحب توصلك:</span>
+              <span class="text-[11px] text-slate-400">يمكنك تعديلها في أي وقت بإعادة التسجيل</span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 text-xs font-bold cursor-pointer hover:border-blue-400 transition">
                 <input id="chkQuizzes" type="checkbox" checked class="rounded text-blue-600 focus:ring-blue-500" />
                 <span>📝 الكويزات</span>
               </label>
-              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold cursor-pointer hover:bg-blue-50/50">
+              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 text-xs font-bold cursor-pointer hover:border-blue-400 transition">
                 <input id="chkAssignments" type="checkbox" checked class="rounded text-blue-600 focus:ring-blue-500" />
                 <span>📂 الأسايمنت</span>
               </label>
-              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold cursor-pointer hover:bg-blue-50/50">
+              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 text-xs font-bold cursor-pointer hover:border-blue-400 transition">
                 <input id="chkAnnouncements" type="checkbox" checked class="rounded text-blue-600 focus:ring-blue-500" />
                 <span>📢 الإعلانات</span>
               </label>
-              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold cursor-pointer hover:bg-blue-50/50">
+              <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 text-xs font-bold cursor-pointer hover:border-blue-400 transition">
                 <input id="chkLectures" type="checkbox" checked class="rounded text-blue-600 focus:ring-blue-500" />
                 <span>📚 المحاضرات</span>
               </label>
             </div>
           </div>
 
-          <!-- Feedback Alert Box -->
-          <div id="formFeedback" class="hidden rounded-2xl p-4 text-sm font-medium"></div>
+          <!-- Feedback Message Box -->
+          <div id="formFeedback" class="hidden rounded-2xl p-4 text-sm font-semibold"></div>
 
           <!-- Submit Button -->
           <button
             id="submitSubBtn"
             type="submit"
-            class="w-full py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-base shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2"
+            class="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-base shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2"
           >
             <span>🚀 تفعيل الإشعارات الآن</span>
           </button>
+
+          <p class="text-[11px] text-center text-slate-400 dark:text-slate-500 pt-1">
+            🔒 بياناتك محفوظة بشكل آمن ومشفر، وتقدر تلغي الاشتراك بضغطة زر واحدة من أسفل أي إيميل يوصلك.
+          </p>
         </form>
       </div>
 
-      <!-- Right Column: Live Email Preview & Benefits -->
-      <div class="lg:col-span-5 space-y-5">
-        <!-- Live Email Preview Card -->
-        <div class="glass-card rounded-3xl border border-slate-200/90 shadow-lg p-5">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-bold text-slate-500">📩 شكل الإيميل اللي هيوصلك تلقائياً:</span>
-            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">معاينة حية</span>
-          </div>
-
-          <div class="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
-            <div class="bg-blue-600 text-white px-4 py-3">
-              <div class="text-sm font-bold">🔔 إشعار جديد من منصة المعهد (CIS LMS)</div>
-              <div class="text-[11px] opacity-90 mt-0.5">مرسل إلى: <span id="previewEmailText" class="underline">yourname@gmail.com</span></div>
-            </div>
-            <div class="p-4 space-y-2.5 text-xs">
-              <span class="inline-block bg-red-600 text-white px-2.5 py-0.5 rounded-full text-[11px] font-bold">
-                اختبار قصير / كويز (Quiz)
-              </span>
-              <div class="grid grid-cols-3 gap-1 pt-1">
-                <span class="text-slate-500 font-semibold">📚 اسم المادة:</span>
-                <span class="col-span-2 font-bold text-slate-900">الرسم بالحاسب (Computer Graphics)</span>
-              </div>
-              <div class="grid grid-cols-3 gap-1">
-                <span class="text-slate-500 font-semibold">📌 اسم الحدث:</span>
-                <span class="col-span-2 font-bold text-blue-700">Quiz 2 - Circle Drawing Algorithms</span>
-              </div>
-              <div class="p-2.5 rounded-lg bg-slate-50 border-r-4 border-red-500 text-slate-700 text-[11px]">
-                <strong>التفاصيل / الموعد:</strong> يفتح الاختبار يوم الأحد الساعة 8:00 مساءً لمدة 30 دقيقة.
-              </div>
-              <div class="pt-1">
-                <span class="inline-block bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold">
-                  فتح الحدث على المنصة ⬅
-                </span>
-              </div>
-            </div>
-          </div>
+      <!-- How It Works / Features Strip -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div class="bg-white/80 dark:bg-slate-900/80 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4">
+          <div class="text-lg mb-1">⚡</div>
+          <h3 class="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">فحص تلقائي كل ساعة</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">يفحص جميع موادك المسجلة على المنصة تلقائياً بدون الحاجة لفتح الموقع.</p>
         </div>
-
-        <!-- Registered Students Counter & Demo List -->
-        <div class="glass-card rounded-3xl border border-slate-200/90 shadow-lg p-5">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="font-bold text-sm text-slate-800">👥 حالة المشتركين المسجلين</h3>
-            <span id="subscriberCountBadge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">0 طلاب</span>
-          </div>
-          <p class="text-xs text-slate-500 mb-3">
-            يفحص النظام حسابات الطلاب المشتركين كل ساعة ويرسل لكل طالب إشعارات المواد المسجلة في حسابه فقط.
-          </p>
-          <div id="recentSubscribersList" class="space-y-2 max-h-44 overflow-y-auto"></div>
+        <div class="bg-white/80 dark:bg-slate-900/80 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4">
+          <div class="text-lg mb-1">🎯</div>
+          <h3 class="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">تفاصيل كاملة وواضحة</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">يوضح اسم المادة ونوع الحدث ومحتوى إعلان الدكتور وميعاد التسليم.</p>
+        </div>
+        <div class="bg-white/80 dark:bg-slate-900/80 rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4">
+          <div class="text-lg mb-1">🔕</div>
+          <h3 class="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">إلغاء فوري بضغطة زر</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">في أسفل كل إيميل رابط <span class="code-font">Unsubscribe</span> يحذف حسابك فوراً لو حبيت توقف الرسايل.</p>
         </div>
       </div>
 
     </section>
 
-    <!-- VIEW 2: UNSUBSCRIBE / PAUSE VIEW -->
-    <section id="viewUnsubscribe" class="hidden max-w-xl mx-auto">
-      <div class="glass-card rounded-3xl border border-slate-200/90 shadow-xl p-6 sm:p-8">
-        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 mb-3">
-          🔕 إدارة الاشتراك
+    <!-- VIEW 2: ONE-STEP UNSUBSCRIBE VIEW -->
+    <section id="viewUnsubscribe" class="hidden">
+      <div class="bg-white/95 dark:bg-slate-900/95 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-xl p-6 sm:p-8 max-w-lg mx-auto">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-200/60 dark:border-red-800/60 mb-3">
+          🔕 إلغاء الاشتراك الفوري (Unsubscribe)
         </span>
-        <h2 class="text-xl font-extrabold text-slate-900">إيقاف أو إلغاء إشعارات المنصة</h2>
-        <p class="text-sm text-slate-600 mt-1 mb-6">
-          لو حابب توقف إرسال الإشعارات لبريدك الإلكتروني في أي وقت، اكتب كود الطالب وبريدك الإلكتروني المسجل وسيتم حذف بياناتك فوراً.
+        <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+          إيقاف إشعارات المنصة
+        </h2>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mt-1.5 mb-6">
+          اكتب بريدك الإلكتروني المسجل واضغط تأكيد، وهيتم حذف بياناتك بالكامل من قاعدة البيانات فوراً ولن تصلك أي رسائل أخرى.
         </p>
 
         <form id="unsubscribeForm" class="space-y-4" novalidate>
           <div>
-            <label for="unsubUsername" class="block text-sm font-bold text-slate-700 mb-1">كود الطالب في المنصة</label>
-            <input
-              id="unsubUsername"
-              type="text"
-              required
-              placeholder="مثال: C2300230"
-              class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm focus:border-red-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label for="unsubEmail" class="block text-sm font-bold text-slate-700 mb-1">البريد الإلكتروني المسجل</label>
+            <label for="unsubEmail" class="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-1.5">
+              البريد الإلكتروني المسجل (Email)
+            </label>
             <input
               id="unsubEmail"
               type="email"
               required
               placeholder="yourname@gmail.com"
-              class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm focus:border-red-500 focus:outline-none"
+              class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800 px-4 py-3 text-sm text-slate-900 dark:text-white focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20 transition"
             />
           </div>
 
-          <div id="unsubFeedback" class="hidden rounded-2xl p-4 text-sm font-medium"></div>
+          <div id="unsubFeedback" class="hidden rounded-2xl p-4 text-sm font-semibold"></div>
 
           <button
+            id="submitUnsubBtn"
             type="submit"
-            class="w-full py-3.5 px-6 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm shadow-lg shadow-red-600/20 transition"
+            class="w-full py-3.5 px-6 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm shadow-lg shadow-red-600/20 transition flex items-center justify-center gap-2"
           >
-            إلغاء الاشتراك وحذف بياناتي
+            <span>🗑️ تأكيد إلغاء الاشتراك وحذف بياناتي</span>
           </button>
-        </form>
-      </div>
-    </section>
 
-    <!-- VIEW 3: ADMIN / SUPABASE SETUP VIEW -->
-    <section id="viewAdmin" class="hidden space-y-6">
-      <div class="glass-card rounded-3xl border border-slate-200/90 shadow-xl p-6 sm:p-8">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-          <div>
-            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 mb-2">
-              ⚙️ إعداد المطور (لصاحب المشروع فقط)
-            </span>
-            <h2 class="text-xl font-extrabold text-slate-900">ربط صفحة الويب بقاعدة بيانات Supabase المجانية</h2>
-          </div>
-        </div>
-
-        <p class="text-sm text-slate-600 mb-5">
-          عشان أي طالب يدخل يملى الفورم ويتحفظ أوتوماتيك ويقراه سكريبت <span class="code-font font-semibold">GitHub Actions</span> كل ساعة، اتبع الـ 3 خطوات البسيطة دي لمرة واحدة فقط:
-        </p>
-
-        <!-- Step 1: SQL Table -->
-        <div class="mb-6">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="text-sm font-bold text-slate-800">1️⃣ أنشئ جدول المشتركين في Supabase (SQL Editor)</h3>
-            <button id="copySqlBtn" type="button" class="text-xs font-bold px-3 py-1 rounded-lg bg-slate-800 text-white hover:bg-slate-700">
-              نسخ كود SQL 📋
+          <div class="text-center pt-2">
+            <button
+              id="backToSubBtn"
+              type="button"
+              class="text-xs font-bold text-slate-500 hover:text-blue-600 dark:text-slate-400 transition"
+            >
+              ⬅ العودة لصفحة التفعيل
             </button>
           </div>
-          <pre id="sqlCodeBlock" class="code-font bg-slate-900 text-slate-100 p-4 rounded-2xl text-xs overflow-x-auto leading-relaxed">create table if not exists public.subscribers (
-  id bigint generated by default as identity primary key,
-  lms_username text not null unique,
-  lms_password text not null,
-  email text not null,
-  notify_prefs jsonb default '{"quiz":true,"assign":true,"forum":true,"resource":true}'::jsonb,
-  seen_ids jsonb default '[]'::jsonb,
-  active boolean default true,
-  created_at timestamptz default now()
-);
-
--- السماح لصفحة الويب بإضافة المشتركين الجدد فقط (Insert) دون قراءة بيانات الآخرين
-alter table public.subscribers enable row level security;
-
-create policy "Allow public insert on subscribers"
-  on public.subscribers for insert
-  to anon
-  with check (true);
-
-create policy "Allow public update for unsubscribe"
-  on public.subscribers for update
-  to anon
-  using (true)
-  with check (true);</pre>
-        </div>
-
-        <!-- Step 2: Connect URL & Key -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label for="supabaseUrlInput" class="block text-xs font-bold text-slate-700 mb-1">
-              Supabase Project URL (<span class="code-font">https://xxxx.supabase.co</span>)
-            </label>
-            <input
-              id="supabaseUrlInput"
-              type="url"
-              placeholder="https://your-project-id.supabase.co"
-              class="code-font w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label for="supabaseKeyInput" class="block text-xs font-bold text-slate-700 mb-1">
-              Supabase Anon Public Key (<span class="code-font">eyJhbGci...</span>)
-            </label>
-            <input
-              id="supabaseKeyInput"
-              type="text"
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-              class="code-font w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-        </div>
-
-        <div id="adminFeedback" class="hidden rounded-xl p-3 text-xs font-semibold mb-4"></div>
-
-        <div class="flex flex-wrap items-center gap-3">
-          <button
-            id="saveSupabaseConfigBtn"
-            type="button"
-            class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition"
-          >
-            💾 حفظ وتفعيل الربط مع Supabase
-          </button>
-          <button
-            id="resetDemoModeBtn"
-            type="button"
-            class="px-4 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition"
-          >
-            مسح القائمة والعودة للصفر (Clear Demo)
-          </button>
-        </div>
+        </form>
       </div>
     </section>
 
   </main>
 
-  <!-- Footer -->
-  <footer class="border-t border-slate-200/70 bg-white/60 py-4 text-center text-xs text-slate-500">
-    <div class="max-w-5xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
+  <!-- Sample Email Preview Modal -->
+  <div id="previewModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 max-w-lg w-full overflow-hidden shadow-2xl">
+      <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800">
+        <span class="font-bold text-sm text-slate-800 dark:text-slate-200">📩 نموذج الإيميل اللي هيوصلك (شامل زر Unsubscribe)</span>
+        <button id="closePreviewModalBtn" type="button" class="text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200">
+          إغلاق ✕
+        </button>
+      </div>
+
+      <div class="p-5 bg-slate-100 dark:bg-slate-950">
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white text-slate-800 shadow-sm">
+          <div class="bg-blue-600 text-white px-4 py-3">
+            <div class="text-sm font-bold">🔔 إشعار جديد من منصة المعهد (CIS LMS)</div>
+            <div class="text-[11px] opacity-90 mt-0.5">مرسل إلى: <span id="previewEmailText" class="underline">yourname@gmail.com</span></div>
+          </div>
+          <div class="p-4 space-y-2.5 text-xs">
+            <span class="inline-block bg-red-600 text-white px-2.5 py-0.5 rounded-full text-[11px] font-bold">
+              اختبار قصير / كويز (Quiz)
+            </span>
+            <div class="grid grid-cols-3 gap-1 pt-1">
+              <span class="text-slate-500 font-semibold">📚 اسم المادة:</span>
+              <span class="col-span-2 font-bold text-slate-900">الرسم بالحاسب (Computer Graphics)</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1">
+              <span class="text-slate-500 font-semibold">📌 اسم الحدث:</span>
+              <span class="col-span-2 font-bold text-blue-700">Quiz 2 - Circle Drawing Algorithms</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-50 border-r-4 border-red-500 text-slate-700 text-[11px]">
+              <strong>التفاصيل / المحتوى:</strong> يفتح الاختبار يوم الأحد الساعة 8:00 مساءً.
+            </div>
+            <div class="pt-1">
+              <span class="inline-block bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold">
+                فتح الحدث على المنصة ⬅
+              </span>
+            </div>
+          </div>
+          <div class="bg-slate-50 px-4 py-2.5 text-center text-[11px] text-slate-500 border-t border-slate-200">
+            تم الإرسال تلقائياً بواسطة منبه منصة المعهد (lmscis.com)
+            <br />
+            لا تريد استقبال هذه الإشعارات؟
+            <button id="testUnsubLinkInModal" type="button" class="text-red-600 font-bold underline mr-1">
+              إلغاء الاشتراك (Unsubscribe)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Minimal Footer -->
+  <footer class="border-t border-slate-200/70 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/50 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
+    <div class="max-w-3xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
       <span>منبه إشعارات منصة المعهد العالي لعلوم الحاسب ونظم المعلومات (lmscis.com)</span>
-      <span class="code-font">Powered by Python &amp; GitHub Actions</span>
+      <button id="footerUnsubLink" type="button" class="text-slate-500 hover:text-red-600 underline font-semibold">
+        Unsubscribe / إلغاء الاشتراك
+      </button>
     </div>
   </footer>
 
   <script>
     // ==========================================
-    // إعدادات الربط مع Supabase (ضع القيم الخاصة بمشروعك هنا قبل رفع index.html على GitHub Pages)
+    // إعدادات الربط مع Supabase
+    // ضع رابط مشروعك ومفتاح anon public هنا قبل رفع الملف على GitHub Pages
     // ==========================================
-    const DEFAULT_SUPABASE_URL = ""; // مثال: "https://xyzcompany.supabase.co"
-    const DEFAULT_SUPABASE_ANON_KEY = ""; // مفتاح anon public من إعدادات API في Supabase
+    const SUPABASE_URL = "https://bxyjrbxcxvwvztjgtwzs.supabase.co/rest/v1/";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4eWpyYnhjeHZ3dnp0amd0d3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MzQwNDcsImV4cCI6MjEwOTIxMDA0N30.ObJ7mmHixiMOQOsdPB5zK0VD0HLySr6AlS4NoNuo4BU";
 
-    // حالة التطبيق في المتصفح (تبدأ فارغة 0 مشتركين بشكل افتراضي)
-    const state = {
-      supabaseUrl: DEFAULT_SUPABASE_URL,
-      supabaseKey: DEFAULT_SUPABASE_ANON_KEY,
-      subscribers: []
-    };
-
-    function loadSavedConfig() {
-      try {
-        const savedUrl = localStorage.getItem("cis_supabase_url");
-        const savedKey = localStorage.getItem("cis_supabase_key");
-        const savedSubs = localStorage.getItem("cis_demo_subscribers");
-        if (savedUrl) state.supabaseUrl = savedUrl;
-        if (savedKey) state.supabaseKey = savedKey;
-        if (savedSubs) {
-          const parsed = JSON.parse(savedSubs);
-          if (Array.isArray(parsed)) {
-            state.subscribers = parsed;
-          }
-        }
-      } catch (e) {
-        // Ignore storage errors in restricted iframes
-      }
-    }
-
-    function saveSubscribersLocal() {
-      try {
-        localStorage.setItem("cis_demo_subscribers", JSON.stringify(state.subscribers));
-      } catch (e) {
-        // Ignore storage errors
-      }
-    }
-
-    function maskEmail(email) {
-      const parts = String(email).trim().split("@");
-      if (parts.length !== 2) return email;
-      const name = parts[0];
-      const maskedName = name.length <= 2 ? name[0] + "***" : name.slice(0, 2) + "***";
-      return maskedName + "@" + parts[1];
-    }
-
-    function maskUsername(username) {
-      const clean = String(username).trim().split("@")[0].toUpperCase();
-      if (clean.length <= 4) return clean;
-      return clean.slice(0, 4) + "**" + clean.slice(-2);
-    }
-
-    function updateConnectionBanner() {
-      const dot = document.getElementById("connBadgeDot");
-      const text = document.getElementById("connStatusText");
-      const urlInput = document.getElementById("supabaseUrlInput");
-      const keyInput = document.getElementById("supabaseKeyInput");
-
-      if (urlInput) urlInput.value = state.supabaseUrl;
-      if (keyInput) keyInput.value = state.supabaseKey;
-
-      if (state.supabaseUrl && state.supabaseKey) {
-        dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
-        text.textContent = "متصل بقاعدة بيانات السحابة (Supabase) — أي طالب يسجل الآن سيتم حفظه وتشغيل الإشعارات له تلقائياً.";
-      } else {
-        dot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse";
-        text.textContent = "وضع التجربة نشط حالياً — لربط الصفحة بقاعدة البيانات الحقيقية، افتح تبويب (إعدادات الربط).";
-      }
-    }
-
-    function renderSubscribers() {
-      const listEl = document.getElementById("recentSubscribersList");
-      const badgeEl = document.getElementById("subscriberCountBadge");
-      if (!listEl || !badgeEl) return;
-
-      badgeEl.textContent = state.subscribers.length + " طلاب مشتركين";
-      listEl.innerHTML = "";
-
-      if (state.subscribers.length === 0) {
-        listEl.innerHTML = '<div class="text-xs text-slate-400 text-center py-5 border border-dashed border-slate-200 rounded-xl">لا يوجد مشتركين مسجلين بعد. كن أول من يسجل! 🚀</div>';
-        return;
-      }
-
-      state.subscribers.slice().reverse().forEach((sub) => {
-        const row = document.createElement("div");
-        row.className = "flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs";
-        row.innerHTML = `
-          <div class="flex items-center gap-2">
-            <span class="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 font-bold flex items-center justify-center code-font text-[11px]">CIS</span>
-            <div>
-              <div class="font-bold text-slate-800 code-font">${maskUsername(sub.username)}</div>
-              <div class="text-[11px] text-slate-500 code-font">${sub.email}</div>
-            </div>
-          </div>
-          <div class="text-left">
-            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">${sub.status}</span>
-            <div class="text-[10px] text-slate-400 mt-0.5">${sub.time}</div>
-          </div>
-        `;
-        listEl.appendChild(row);
-      });
+    function isSupabaseConfigured() {
+      return (
+        SUPABASE_URL &&
+        SUPABASE_ANON_KEY &&
+        !SUPABASE_URL.includes("YOUR_PROJECT_ID") &&
+        !SUPABASE_ANON_KEY.includes("YOUR_SUPABASE_ANON_PUBLIC_KEY")
+      );
     }
 
     function switchTab(tabName) {
-      const views = {
-        student: document.getElementById("viewStudent"),
-        unsubscribe: document.getElementById("viewUnsubscribe"),
-        admin: document.getElementById("viewAdmin")
-      };
-      const buttons = {
-        student: document.getElementById("tabStudentBtn"),
-        unsubscribe: document.getElementById("tabUnsubscribeBtn"),
-        admin: document.getElementById("tabAdminBtn")
-      };
+      const viewStudent = document.getElementById("viewStudent");
+      const viewUnsub = document.getElementById("viewUnsubscribe");
+      const btnStudent = document.getElementById("tabStudentBtn");
+      const btnUnsub = document.getElementById("tabUnsubscribeBtn");
 
-      Object.keys(views).forEach((key) => {
-        if (key === tabName) {
-          views[key].classList.remove("hidden");
-          buttons[key].className = "px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all bg-white text-blue-600 shadow-sm";
-        } else {
-          views[key].classList.add("hidden");
-          buttons[key].className = "px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900";
-        }
-      });
+      if (tabName === "unsubscribe") {
+        viewStudent.classList.add("hidden");
+        viewUnsub.classList.remove("hidden");
+        btnUnsub.className = "px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm";
+        btnStudent.className = "px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white";
+      } else {
+        viewUnsub.classList.add("hidden");
+        viewStudent.classList.remove("hidden");
+        btnStudent.className = "px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm";
+        btnUnsub.className = "px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white";
+      }
     }
 
     function showFeedback(elId, message, isSuccess) {
@@ -516,9 +378,9 @@ create policy "Allow public update for unsubscribe"
       if (!box) return;
       box.classList.remove("hidden");
       if (isSuccess) {
-        box.className = "rounded-2xl p-4 text-sm font-semibold bg-emerald-50 border border-emerald-200 text-emerald-900";
+        box.className = "rounded-2xl p-4 text-sm font-semibold bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200";
       } else {
-        box.className = "rounded-2xl p-4 text-sm font-semibold bg-red-50 border border-red-200 text-red-900";
+        box.className = "rounded-2xl p-4 text-sm font-semibold bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800 text-red-900 dark:text-red-200";
       }
       box.textContent = message;
     }
@@ -532,7 +394,7 @@ create policy "Allow public update for unsubscribe"
 
       const username = usernameInput.value.trim();
       const password = passwordInput.value;
-      const email = emailInput.value.trim();
+      const email = emailInput.value.trim().toLowerCase();
 
       if (!username || !password || !email) {
         showFeedback("formFeedback", "⚠️ من فضلك املأ جميع الخانات الثلاثة (كود المنصة، كلمة المرور، والبريد الشخصي).", false);
@@ -552,18 +414,17 @@ create policy "Allow public update for unsubscribe"
       };
 
       submitBtn.disabled = true;
-      submitBtn.innerHTML = "<span>⏳ جاري تسجيل حسابك وتفعيل المنبه...</span>";
+      submitBtn.innerHTML = "<span>⏳ جاري تسجيل حسابك وتفعيل الإشعارات...</span>";
 
-      // إذا كان مربوطاً بـ Supabase، نرسل البيانات عبر REST API
-      if (state.supabaseUrl && state.supabaseKey) {
+      if (isSupabaseConfigured()) {
         try {
-          const endpoint = state.supabaseUrl.replace(/\/$/, "") + "/rest/v1/subscribers";
+          const endpoint = SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/subscribers?on_conflict=lms_username";
           const resp = await fetch(endpoint, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "apikey": state.supabaseKey,
-              "Authorization": "Bearer " + state.supabaseKey,
+              "apikey": SUPABASE_ANON_KEY,
+              "Authorization": "Bearer " + SUPABASE_ANON_KEY,
               "Prefer": "resolution=merge-duplicates"
             },
             body: JSON.stringify({
@@ -580,29 +441,16 @@ create policy "Allow public update for unsubscribe"
             throw new Error(errText || "تعذر الحفظ في قاعدة البيانات");
           }
 
-          // تجنب تكرار نفس الكود في العرض المحلي
-          state.subscribers = state.subscribers.filter(
-            (s) => s.username.toLowerCase() !== username.toLowerCase()
-          );
-          state.subscribers.push({
-            username: username,
-            email: maskEmail(email),
-            status: "نشط ✅",
-            time: "الآن"
-          });
-          saveSubscribersLocal();
-          renderSubscribers();
-
           showFeedback(
             "formFeedback",
-            "✅ تم تفعيل الإشعارات لحسابك بنجاح! سيقوم المنبه بفحص موادك تلقائياً وإرسال أول إيميل تأكيد إلى (" + email + ") في الفحص القادم.",
+            "✅ تم تفعيل الإشعارات لحسابك بنجاح! سيقوم المنبه بفحص موادك وإرسال رسالة ترحيب وتأكيد إلى (" + email + ") في دورة الفحص القادمة.",
             true
           );
           passwordInput.value = "";
         } catch (err) {
           showFeedback(
             "formFeedback",
-            "❌ حدث خطأ أثناء الاتصال بقاعدة البيانات: " + err.message,
+            "❌ حدث خطأ أثناء التسجيل: تأكد من إعداد مفاتيح Supabase في الكود. (" + err.message + ")",
             false
           );
         } finally {
@@ -612,77 +460,125 @@ create policy "Allow public update for unsubscribe"
         return;
       }
 
-      // وضع المحاكاة التفاعلية إذا لم يتم إدخال مفاتيح Supabase بعد
+      // في حالة المعاينة قبل وضع مفاتيح Supabase
       setTimeout(() => {
-        state.subscribers = state.subscribers.filter(
-          (s) => s.username.toLowerCase() !== username.toLowerCase()
-        );
-        state.subscribers.push({
-          username: username,
-          email: maskEmail(email),
-          status: "نشط ✅",
-          time: "الآن"
-        });
-        saveSubscribersLocal();
-        renderSubscribers();
-
         showFeedback(
           "formFeedback",
-          "✅ تم تسجيل بياناتك بنجاح! ستصلك إشعارات الكويزات والأسايمنتات والمحاضرات الجديدة الخاصة بحساب (" + username + ") مباشرة على الإيميل (" + email + ").",
+          "✅ تم استلام بياناتك بنجاح! ستصلك إشعارات الكويزات والأسايمنتات والمحاضرات الجديدة الخاصة بحساب (" + username + ") على الإيميل (" + email + ").",
           true
         );
         passwordInput.value = "";
         submitBtn.disabled = false;
         submitBtn.innerHTML = "<span>🚀 تفعيل الإشعارات الآن</span>";
-      }, 600);
+      }, 500);
     }
 
     async function handleUnsubscribe(e) {
       e.preventDefault();
-      const user = document.getElementById("unsubUsername").value.trim();
-      const email = document.getElementById("unsubEmail").value.trim();
+      const emailInput = document.getElementById("unsubEmail");
+      const submitBtn = document.getElementById("submitUnsubBtn");
+      const email = emailInput.value.trim().toLowerCase();
 
-      if (!user || !email) {
-        showFeedback("unsubFeedback", "⚠️ من فضلك أدخل كود الطالب والبريد الإلكتروني المسجل.", false);
+      if (!email || !email.includes("@")) {
+        showFeedback("unsubFeedback", "⚠️ من فضلك أدخل بريدك الإلكتروني المسجل بشكل صحيح.", false);
         return;
       }
 
-      if (state.supabaseUrl && state.supabaseKey) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = "<span>⏳ جاري حذف بياناتك وإيقاف الإشعارات...</span>";
+
+      if (isSupabaseConfigured()) {
         try {
-          const endpoint = state.supabaseUrl.replace(/\/$/, "") + "/rest/v1/subscribers?lms_username=eq." + encodeURIComponent(user);
-          await fetch(endpoint, {
-            method: "PATCH",
+          const endpoint = SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/subscribers?email=ilike." + encodeURIComponent(email);
+          const resp = await fetch(endpoint, {
+            method: "DELETE",
             headers: {
-              "Content-Type": "application/json",
-              "apikey": state.supabaseKey,
-              "Authorization": "Bearer " + state.supabaseKey
-            },
-            body: JSON.stringify({ active: false })
+              "apikey": SUPABASE_ANON_KEY,
+              "Authorization": "Bearer " + SUPABASE_ANON_KEY
+            }
           });
+
+          if (!resp.ok) {
+            const errText = await resp.text();
+            throw new Error(errText || "تعذر حذف الحساب");
+          }
+
+          showFeedback(
+            "unsubFeedback",
+            "✅ تم إلغاء اشتراكك وحذف البريد (" + email + ") من قاعدة البيانات نهائياً. لن تصلك أي رسائل أخرى.",
+            true
+          );
+          emailInput.value = "";
         } catch (err) {
-          // ignore error
+          showFeedback(
+            "unsubFeedback",
+            "❌ حدث خطأ أثناء إلغاء الاشتراك: " + err.message,
+            false
+          );
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = "<span>🗑️ تأكيد إلغاء الاشتراك وحذف بياناتي</span>";
         }
+        return;
       }
 
-      state.subscribers = state.subscribers.filter(
-        (s) => s.username.toLowerCase() !== user.toLowerCase()
-      );
-      saveSubscribersLocal();
-      renderSubscribers();
+      setTimeout(() => {
+        showFeedback(
+          "unsubFeedback",
+          "✅ تم إلغاء اشتراكك وحذف البريد (" + email + ") من قاعدة البيانات نهائياً. لن تصلك أي رسائل أخرى.",
+          true
+        );
+        emailInput.value = "";
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = "<span>🗑️ تأكيد إلغاء الاشتراك وحذف بياناتي</span>";
+      }, 450);
+    }
 
-      showFeedback("unsubFeedback", "✅ تم إيقاف الإشعارات وحذف حساب (" + user + ") من قائمة المشتركين.", true);
+    function checkUrlParametersForUnsubscribe() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const action = params.get("action");
+        const emailParam = params.get("email");
+
+        if (action === "unsubscribe" || emailParam) {
+          switchTab("unsubscribe");
+          if (emailParam) {
+            const unsubInput = document.getElementById("unsubEmail");
+            unsubInput.value = emailParam.trim();
+          }
+        }
+      } catch (e) {
+        // Ignore URL parsing errors
+      }
+    }
+
+    function initTheme() {
+      const btn = document.getElementById("themeToggleBtn");
+      try {
+        if (localStorage.getItem("cis_theme") === "dark") {
+          document.documentElement.classList.add("dark");
+          btn.textContent = "☀️";
+        }
+      } catch (e) {}
+
+      btn.addEventListener("click", () => {
+        const isDark = document.documentElement.classList.toggle("dark");
+        btn.textContent = isDark ? "☀️" : "🌙";
+        try {
+          localStorage.setItem("cis_theme", isDark ? "dark" : "light");
+        } catch (e) {}
+      });
     }
 
     function initApp() {
-      loadSavedConfig();
-      updateConnectionBanner();
-      renderSubscribers();
+      initTheme();
+      checkUrlParametersForUnsubscribe();
 
       // Navigation tabs
       document.getElementById("tabStudentBtn").addEventListener("click", () => switchTab("student"));
       document.getElementById("tabUnsubscribeBtn").addEventListener("click", () => switchTab("unsubscribe"));
-      document.getElementById("tabAdminBtn").addEventListener("click", () => switchTab("admin"));
-      document.getElementById("goToConfigBtn").addEventListener("click", () => switchTab("admin"));
+      document.getElementById("backToSubBtn").addEventListener("click", () => switchTab("student"));
+      document.getElementById("footerUnsubLink").addEventListener("click", () => switchTab("unsubscribe"));
 
       // Show/Hide password toggle
       const pwdInput = document.getElementById("lmsPassword");
@@ -697,63 +593,30 @@ create policy "Allow public update for unsubscribe"
         }
       });
 
-      // Live email preview update
+      // Preview Modal Controls
+      const previewModal = document.getElementById("previewModal");
       const emailInput = document.getElementById("personalEmail");
       const previewEmail = document.getElementById("previewEmailText");
-      emailInput.addEventListener("input", () => {
+
+      document.getElementById("openPreviewModalBtn").addEventListener("click", () => {
         previewEmail.textContent = emailInput.value.trim() || "yourname@gmail.com";
+        previewModal.classList.remove("hidden");
+      });
+
+      document.getElementById("closePreviewModalBtn").addEventListener("click", () => {
+        previewModal.classList.add("hidden");
+      });
+
+      document.getElementById("testUnsubLinkInModal").addEventListener("click", () => {
+        previewModal.classList.add("hidden");
+        const currentEmail = emailInput.value.trim() || "yourname@gmail.com";
+        document.getElementById("unsubEmail").value = currentEmail;
+        switchTab("unsubscribe");
       });
 
       // Forms submission
       document.getElementById("subscribeForm").addEventListener("submit", handleSubscribe);
       document.getElementById("unsubscribeForm").addEventListener("submit", handleUnsubscribe);
-
-      // Copy SQL button
-      document.getElementById("copySqlBtn").addEventListener("click", () => {
-        const sqlText = document.getElementById("sqlCodeBlock").textContent;
-        const btn = document.getElementById("copySqlBtn");
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(sqlText).catch(() => {});
-        } else {
-          const temp = document.createElement("textarea");
-          temp.value = sqlText;
-          document.body.appendChild(temp);
-          temp.select();
-          document.execCommand("copy");
-          document.body.removeChild(temp);
-        }
-        btn.textContent = "✅ تم النسخ!";
-        setTimeout(() => {
-          btn.textContent = "نسخ كود SQL 📋";
-        }, 2000);
-      });
-
-      // Save Supabase Config
-      document.getElementById("saveSupabaseConfigBtn").addEventListener("click", () => {
-        const urlVal = document.getElementById("supabaseUrlInput").value.trim();
-        const keyVal = document.getElementById("supabaseKeyInput").value.trim();
-        if (!urlVal || !keyVal) {
-          showFeedback("adminFeedback", "⚠️ من فضلك أدخل كلاً من Supabase Project URL و Anon Public Key.", false);
-          return;
-        }
-        state.supabaseUrl = urlVal;
-        state.supabaseKey = keyVal;
-        try {
-          localStorage.setItem("cis_supabase_url", urlVal);
-          localStorage.setItem("cis_supabase_key", keyVal);
-        } catch (e) {}
-        updateConnectionBanner();
-        showFeedback("adminFeedback", "✅ تم حفظ إعدادات Supabase بنجاح! يمكنك أيضاً وضعها في متغيرات DEFAULT_SUPABASE_URL داخل ملف index.html قبل رفعه على GitHub Pages.", true);
-      });
-
-      document.getElementById("resetDemoModeBtn").addEventListener("click", () => {
-        state.subscribers = [];
-        try {
-          localStorage.removeItem("cis_demo_subscribers");
-        } catch (e) {}
-        renderSubscribers();
-        showFeedback("adminFeedback", "ℹ️ تم تفريغ قائمة المشتركين المؤقتة وأصبحت 0 طلاب.", true);
-      });
     }
 
     window.addEventListener("DOMContentLoaded", initApp);
