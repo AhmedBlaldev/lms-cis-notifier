@@ -9,6 +9,9 @@
 """
 
 import html
+import base64
+import hashlib
+import hmac
 import os
 import re
 import smtplib
@@ -21,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # ==========================================
 # إعدادات المنصة، الموقع، وخادم البريد المركزي (تُقرأ من GitHub Secrets)
@@ -75,7 +79,26 @@ def safe_email_url(value: object) -> str:
 def build_unsubscribe_url(student_email: str) -> str:
     """بناء رابط إلغاء الاشتراك المباشر الخاص بالطالب."""
     encoded_email = quote(student_email.strip().lower())
-    return f"{WEB_APP_URL}/?action=unsubscribe&email={encoded_email}"
+    token = build_unsubscribe_token(student_email)
+    return f"{WEB_APP_URL}/?action=unsubscribe&email={encoded_email}&token={quote(token)}"
+
+
+def build_unsubscribe_token(student_email: str) -> str:
+    digest = hmac.new(
+        SUPABASE_SERVICE_KEY.encode("utf-8"),
+        student_email.strip().lower().encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def decrypt_password(ciphertext: str) -> str:
+    try:
+        raw = base64.b64decode(ciphertext, validate=True)
+        key = hashlib.sha256(SUPABASE_SERVICE_KEY.encode("utf-8")).digest()
+        return AESGCM(key).decrypt(raw[:12], raw[12:], None).decode("utf-8")
+    except (ValueError, TypeError, UnicodeDecodeError) as exc:
+        raise ValueError("Invalid encrypted LMS password") from exc
 
 
 def is_item_allowed_by_prefs(item_type: str, prefs: Optional[Dict]) -> bool:
@@ -530,7 +553,10 @@ def fetch_active_subscribers() -> List[Dict]:
         "apikey": SUPABASE_SERVICE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
     }
-    url = f"{SUPABASE_URL}/rest/v1/subscribers?active=eq.true&select=*"
+    url = (
+        f"{SUPABASE_URL}/rest/v1/subscribers"
+        "?active=eq.true&select=id,lms_username,lms_password_ciphertext,email,notify_prefs,seen_ids"
+    )
     resp = requests.get(url, headers=headers, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -556,7 +582,7 @@ def main():
     for sub in subscribers:
         sub_id = sub["id"]
         username = sub["lms_username"]
-        password = sub["lms_password"]
+        password = decrypt_password(sub["lms_password_ciphertext"])
         email = sub["email"]
         prefs = sub.get("notify_prefs") or {}
         seen_ids = set(sub.get("seen_ids") or [])

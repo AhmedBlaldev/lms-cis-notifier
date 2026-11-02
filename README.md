@@ -15,7 +15,7 @@ Because the official Moodle platform ([lmscis.com](https://lmscis.com/)) does no
 * **Clear, Structured Email Alerts:** Every email clearly displays the **Course Name**, **Activity Type** (color-coded badge), **Event Title**, **Announcement Content / Due Dates**, and a direct button to open the item on the LMS.
 * **100% Free & Serverless (24/7):** Runs automatically every hour via **GitHub Actions** (using Cairo local time `Africa/Cairo`) without keeping your PC on.
 * **Smart Deduplication:** Saves seen item IDs in `seen_lms_items.json` so you never receive duplicate emails for old items.
-* **Privacy & Security First:** All credentials are read strictly from encrypted **GitHub Secrets** and are never exposed in code or workflow logs.
+* **Privacy & Security First:** The public page never writes directly to the database. A Supabase Edge Function validates requests and encrypts LMS passwords before storage; the worker decrypts them only inside GitHub Actions.
 
 ## 🚀 Step-by-Step Setup Guide for Students
 
@@ -50,6 +50,8 @@ Your LMS and email credentials are stored safely inside GitHub's encrypted secre
 | `EMAIL_SENDER` | Your personal Gmail address (e.g., `yourname@gmail.com`) |
 | `EMAIL_APP_PASSWORD` | The 16-character Gmail App Password generated in **Step 2** |
 | `EMAIL_RECEIVER` | The email address where you want to receive alerts (usually the same as `EMAIL_SENDER`) |
+
+The Supabase project must have the `subscribers` Edge Function deployed and the public table policies disabled. The browser must not have direct table access.
 
 ### Step 4: Enable & Test Your Workflow
 
@@ -93,4 +95,5 @@ If you want to test or run the script on your own computer instead of GitHub Act
 
 * **Never hardcode passwords** directly inside `lms_notifier.py`. Always use **GitHub Secrets** or environment variables.
 * Even if your repository is **Public**, GitHub Secrets are completely hidden and cannot be viewed by anyone—nor are they copied when another student forks your repository.
-* `seen_lms_items.json` only stores numerical Moodle module IDs (e.g., `mod_resource_16500`) and contains no personal data or grades.
+* Subscriber passwords are stored as authenticated ciphertext, not plaintext. The encryption key is derived from the service key and is never sent to the browser.
+* `seen_lms_items.json` is legacy local state; the multi-user worker stores each subscriber's `seen_ids` in Supabase.

@@ -354,6 +354,8 @@
       }
     }
 
+    const SUPABASE_FUNCTION_URL = getCleanSupabaseBaseUrl() + "/functions/v1/subscribers";
+
     function isSupabaseConfigured() {
       return (
         SUPABASE_URL &&
@@ -427,16 +429,15 @@
 
       if (isSupabaseConfigured()) {
         try {
-          const endpoint = getCleanSupabaseBaseUrl() + "/rest/v1/subscribers?on_conflict=lms_username";
-          const resp = await fetch(endpoint, {
+          const resp = await fetch(SUPABASE_FUNCTION_URL, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               "apikey": SUPABASE_ANON_KEY,
-              "Authorization": "Bearer " + SUPABASE_ANON_KEY,
-              "Prefer": "resolution=merge-duplicates"
+              "Authorization": "Bearer " + SUPABASE_ANON_KEY
             },
             body: JSON.stringify({
+              action: "subscribe",
               lms_username: username,
               lms_password: password,
               email: email,
@@ -469,17 +470,13 @@
         return;
       }
 
-      // في حالة المعاينة قبل وضع مفاتيح Supabase
-      setTimeout(() => {
-        showFeedback(
-          "formFeedback",
-          "✅ تم استلام بياناتك بنجاح! ستصلك إشعارات الكويزات والأسايمنتات والمحاضرات الجديدة الخاصة بحساب (" + username + ") على الإيميل (" + email + ").",
-          true
-        );
-        passwordInput.value = "";
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = "<span>🚀 تفعيل الإشعارات الآن</span>";
-      }, 500);
+      showFeedback(
+        "formFeedback",
+        "❌ الخدمة غير مهيأة حالياً. حاول مرة أخرى لاحقاً.",
+        false
+      );
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = "<span>🚀 تفعيل الإشعارات الآن</span>";
     }
 
     async function handleUnsubscribe(e) {
@@ -487,6 +484,7 @@
       const emailInput = document.getElementById("unsubEmail");
       const submitBtn = document.getElementById("submitUnsubBtn");
       const email = emailInput.value.trim().toLowerCase();
+      const token = new URLSearchParams(window.location.search).get("token") || "";
 
       if (!email || !email.includes("@")) {
         showFeedback("unsubFeedback", "⚠️ من فضلك أدخل بريدك الإلكتروني المسجل بشكل صحيح.", false);
@@ -496,15 +494,16 @@
       submitBtn.disabled = true;
       submitBtn.innerHTML = "<span>⏳ جاري حذف بياناتك وإيقاف الإشعارات...</span>";
 
-      if (isSupabaseConfigured()) {
+      if (isSupabaseConfigured() && token) {
         try {
-          const endpoint = getCleanSupabaseBaseUrl() + "/rest/v1/subscribers?email=ilike." + encodeURIComponent(email);
-          const resp = await fetch(endpoint, {
-            method: "DELETE",
+          const resp = await fetch(SUPABASE_FUNCTION_URL, {
+            method: "POST",
             headers: {
               "apikey": SUPABASE_ANON_KEY,
-              "Authorization": "Bearer " + SUPABASE_ANON_KEY
-            }
+              "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ action: "unsubscribe", email, token })
           });
 
           if (!resp.ok) {
@@ -531,16 +530,13 @@
         return;
       }
 
-      setTimeout(() => {
-        showFeedback(
-          "unsubFeedback",
-          "✅ تم إلغاء اشتراكك وحذف البريد (" + email + ") من قاعدة البيانات نهائياً. لن تصلك أي رسائل أخرى.",
-          true
-        );
-        emailInput.value = "";
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = "<span>🗑️ تأكيد إلغاء الاشتراك وحذف بياناتي</span>";
-      }, 450);
+      showFeedback(
+        "unsubFeedback",
+        "⚠️ افتح رابط إلغاء الاشتراك الموجود أسفل آخر رسالة وصلتك لإتمام الإلغاء بأمان.",
+        false
+      );
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = "<span>🗑️ تأكيد إلغاء الاشتراك وحذف بياناتي</span>";
     }
 
     function checkUrlParametersForUnsubscribe() {
