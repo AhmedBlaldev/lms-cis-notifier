@@ -451,11 +451,11 @@
             throw new Error(errText || "تعذر الحفظ في قاعدة البيانات");
           }
 
-          showFeedback(
-            "formFeedback",
-            "✅ تم تفعيل الإشعارات لحسابك بنجاح! سيقوم المنبه بفحص موادك وإرسال رسالة ترحيب وتأكيد إلى (" + email + ") في دورة الفحص القادمة.",
-            true
-          );
+          let data = {};
+          try { data = await resp.json(); } catch (_) { }
+          showFeedback("formFeedback", data.welcome_triggered
+            ? "✅ تم تفعيل الإشعارات! رسالة الترحيب بموادك هتوصلك على (" + email + ") خلال دقيقة تقريباً."
+            : "✅ تم تفعيل الإشعارات! رسالة الترحيب هتوصلك على (" + email + ") في الفحص القادم (خلال ساعة).", true);
           passwordInput.value = "";
         } catch (err) {
           showFeedback(

@@ -2,19 +2,25 @@
 # -*- coding: utf-8 -*-
 """
 سكريبت إشعارات المنصة متعدد المستخدمين (Multi-User CIS LMS Notifier)
+
 - يقرأ قائمة الطلاب المشتركين من قاعدة بيانات Supabase.
 - يحترم تفضيلات كل طالب (كويزات، أسايمنتات، إعلانات، محاضرات).
-- يرسل رسالة ترحيب وتأكيد عند اشتراك الطالب لأول مرة.
-- يضع رابط إلغاء اشتراك مباشر (Unsubscribe) في أسفل كل إيميل بحيث يفتح صفحة الإلغاء ويمسح الطالب من قاعدة البيانات بضغطة زر.
+- يرسل رسالة ترحيب وتأكيد (بالمواد المسجلة) عند اشتراك الطالب لأول مرة.
+- وضع WELCOME_ONLY=true: يفحص المشتركين الجدد فقط (اللي لسه ما وصلهمش ترحيب)،
+  وده اللي بيشتغل فوراً لما الـ Edge Function تشغّل الـ workflow بعد التسجيل.
+- فشل أي مشترك (شبكة / LMS / SMTP) لا يوقف باقي المشتركين ولا يوقع الـ workflow.
+- يضع رابط إلغاء اشتراك مباشر (Unsubscribe) في أسفل كل إيميل.
 """
 
-import html
 import base64
 import hashlib
 import hmac
+import html
 import os
 import re
 import smtplib
+import sys
+import time
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -25,6 +31,8 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ==========================================
 # إعدادات المنصة، الموقع، وخادم البريد المركزي (تُقرأ من GitHub Secrets)
@@ -39,6 +47,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 EMAIL_SENDER = os.getenv("EMAIL_SENDER", "").strip()
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "").replace(" ", "")
 
+
 def _clean_supabase_url(raw_url: str) -> str:
     parsed = urlparse(raw_url.strip())
     if parsed.scheme and parsed.netloc:
@@ -48,6 +57,16 @@ def _clean_supabase_url(raw_url: str) -> str:
 
 SUPABASE_URL = _clean_supabase_url(os.getenv("SUPABASE_URL", ""))
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+
+# true => افحص المشتركين الجدد فقط (اللي seen_ids بتاعتهم فاضية) وابعتلهم الترحيب
+WELCOME_ONLY = os.getenv("WELCOME_ONLY", "false").strip().lower() in {"1", "true", "yes"}
+
+# علامة بتتحط في seen_ids بعد إرسال الترحيب، عشان الطالب ما ياخدش ترحيب تاني
+# حتى لو المنصة ما رجّعتش أي عناصر وقت الفحص الأول.
+WELCOME_SENTINEL = "__welcome_sent__"
+
+LOGIN_ATTEMPTS = 3
+HTTP_TIMEOUT = 30
 
 CAIRO_TZ = ZoneInfo("Africa/Cairo")
 
@@ -62,6 +81,44 @@ ACTIVITY_TYPES_AR = {
     "page": "صفحة محتوى (Page)",
     "calendar_event": "موعد تسليم / حدث في التقويم (Deadline/Event)",
 }
+
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+}
+
+
+class LMSUnavailableError(Exception):
+    """المنصة (lmscis.com) مش بترد / الاتصال بيتقفل — مش غلط في الباسورد."""
+
+
+def describe_error(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def make_session() -> requests.Session:
+    """Session فيها إعادة محاولة تلقائية لأخطاء الشبكة المؤقتة."""
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=2,
+        status=2,
+        backoff_factor=1.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET", "POST", "PATCH"}),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update(BROWSER_HEADERS)
+    return session
 
 
 def safe_email_text(value: object) -> str:
@@ -97,7 +154,7 @@ def decrypt_password(ciphertext: str) -> str:
         raw = base64.b64decode(ciphertext, validate=True)
         key = hashlib.sha256(SUPABASE_SERVICE_KEY.encode("utf-8")).digest()
         return AESGCM(key).decrypt(raw[:12], raw[12:], None).decode("utf-8")
-    except (ValueError, TypeError, UnicodeDecodeError) as exc:
+    except Exception as exc:  # InvalidTag / binascii.Error / UnicodeDecodeError ...
         raise ValueError("Invalid encrypted LMS password") from exc
 
 
@@ -121,21 +178,15 @@ class LMSNotifier:
         self.base_url = base_url
         self.username = username.strip()
         self.password = password
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                )
-            }
-        )
+        self.session = make_session()
         self.sesskey: Optional[str] = None
+        # عدد المواد اللي فشل فحصها بسبب خطأ (شبكة مثلاً) — بنستخدمه عشان
+        # ما نبعتش ترحيب بناءً على فحص ناقص.
+        self.course_scan_errors = 0
 
     def _attempt_login(self, username_to_try: str) -> bool:
         login_url = f"{self.base_url}/login/index.php"
-        resp = self.session.get(login_url, timeout=30)
+        resp = self.session.get(login_url, timeout=HTTP_TIMEOUT)
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -148,8 +199,7 @@ class LMSNotifier:
             "username": username_to_try,
             "password": self.password,
         }
-
-        post_resp = self.session.post(login_url, data=payload, timeout=30)
+        post_resp = self.session.post(login_url, data=payload, timeout=HTTP_TIMEOUT)
         post_resp.raise_for_status()
 
         if "login/index.php" in post_resp.url and "testsession" not in post_resp.url:
@@ -158,20 +208,41 @@ class LMSNotifier:
         match = re.search(r'"sesskey"\s*:\s*"([^"]+)"', post_resp.text)
         if match:
             self.sesskey = match.group(1)
-
         return True
 
     def login(self) -> bool:
+        """
+        True  => تم تسجيل الدخول.
+        False => المنصة رفضت اسم المستخدم / كلمة المرور.
+        يرفع LMSUnavailableError لو المنصة نفسها مش بترد (أخطاء شبكة / 403 / 5xx).
+        """
         candidates = [self.username]
         if "@" in self.username:
             short_user = self.username.split("@")[0]
             if short_user not in candidates:
                 candidates.append(short_user)
 
+        last_error: Optional[BaseException] = None
+        got_definitive_answer = False
+
         for candidate in candidates:
-            if self._attempt_login(candidate):
-                return True
-        return False
+            for attempt in range(1, LOGIN_ATTEMPTS + 1):
+                try:
+                    if self._attempt_login(candidate):
+                        return True
+                    got_definitive_answer = True
+                    break  # المنصة ردّت برفض واضح، مفيش فايدة من إعادة نفس المحاولة
+                except requests.RequestException as exc:
+                    last_error = exc
+                    if attempt < LOGIN_ATTEMPTS:
+                        time.sleep(2 * attempt)
+                        self.session = make_session()  # connection جديد بدل المقفول
+
+        if got_definitive_answer:
+            return False
+        raise LMSUnavailableError(
+            describe_error(last_error) if last_error else "unknown network error"
+        )
 
     def get_enrolled_courses(self) -> List[Dict[str, str]]:
         courses: Dict[str, Dict[str, str]] = {}
@@ -194,7 +265,7 @@ class LMSNotifier:
                 }
             ]
             try:
-                resp = self.session.post(ajax_url, json=payload, timeout=30)
+                resp = self.session.post(ajax_url, json=payload, timeout=HTTP_TIMEOUT)
                 data = resp.json()
                 if isinstance(data, list) and data and not data[0].get("error"):
                     for c in data[0].get("data", {}).get("courses", []):
@@ -213,7 +284,7 @@ class LMSNotifier:
         if not courses:
             for path in ["/my/courses.php", "/my/", "/"]:
                 try:
-                    resp = self.session.get(f"{self.base_url}{path}", timeout=30)
+                    resp = self.session.get(f"{self.base_url}{path}", timeout=HTTP_TIMEOUT)
                     soup = BeautifulSoup(resp.text, "html.parser")
                     for link in soup.find_all("a", href=re.compile(r"/course/view\.php\?id=\d+")):
                         href = link.get("href", "")
@@ -240,9 +311,8 @@ class LMSNotifier:
     ) -> List[Dict[str, str]]:
         items: List[Dict[str, str]] = []
         try:
-            resp = self.session.get(forum_url, timeout=30)
+            resp = self.session.get(forum_url, timeout=HTTP_TIMEOUT)
             soup = BeautifulSoup(resp.text, "html.parser")
-
             for link in soup.find_all("a", href=re.compile(r"/mod/forum/discuss\.php\?d=\d+")):
                 href = link.get("href", "")
                 m = re.search(r"d=(\d+)", href)
@@ -252,11 +322,9 @@ class LMSNotifier:
                 subject = " ".join(link.get_text().split())
                 if not subject or subject.lower() in {"discuss this topic", "permalink"}:
                     continue
-
                 unique_id = f"discussion_{disc_id}"
                 if any(i["id"] == unique_id for i in items):
                     continue
-
                 items.append(
                     {
                         "id": unique_id,
@@ -290,7 +358,7 @@ class LMSNotifier:
         discovered: List[Dict[str, str]] = []
 
         try:
-            resp = self.session.get(course_url, timeout=30)
+            resp = self.session.get(course_url, timeout=HTTP_TIMEOUT)
             soup = BeautifulSoup(resp.text, "html.parser")
 
             mod_pattern = re.compile(
@@ -310,9 +378,10 @@ class LMSNotifier:
 
                 for hidden in link.find_all("span", class_="accesshide"):
                     hidden.decompose()
-                event_name = " ".join(link.get_text().split()) or f"نشاط جديد #{cmid}"
 
+                event_name = " ".join(link.get_text().split()) or f"نشاط جديد #{cmid}"
                 activity_container = link.find_parent("li", class_=re.compile(r"activity"))
+
                 details = ""
                 if activity_container:
                     dates_div = activity_container.find(
@@ -341,15 +410,14 @@ class LMSNotifier:
                         self.parse_forum_discussions(href, course_name, event_name)
                     )
         except Exception:
-            pass
-
+            self.course_scan_errors += 1
         return discovered
 
     def scan_site_announcements_and_calendar(self) -> List[Dict[str, str]]:
         discovered: List[Dict[str, str]] = []
 
         try:
-            resp = self.session.get(f"{self.base_url}/?redirect=0", timeout=30)
+            resp = self.session.get(f"{self.base_url}/?redirect=0", timeout=HTTP_TIMEOUT)
             soup = BeautifulSoup(resp.text, "html.parser")
             for link in soup.find_all("a", href=re.compile(r"/mod/forum/discuss\.php\?d=\d+")):
                 href = link.get("href", "")
@@ -379,7 +447,7 @@ class LMSNotifier:
 
         try:
             cal_url = f"{self.base_url}/calendar/view.php?view=upcoming"
-            resp = self.session.get(cal_url, timeout=30)
+            resp = self.session.get(cal_url, timeout=HTTP_TIMEOUT)
             soup = BeautifulSoup(resp.text, "html.parser")
             for event_card in soup.find_all("div", attrs={"data-type": "event"}):
                 event_id = event_card.get("data-event-id")
@@ -436,10 +504,15 @@ def build_email_html(
             )
             courses_list_html = f'<div style="margin-top:10px;"><strong>المواد التي تتم متابعتها الآن ({len(courses_names)}):</strong><br><div style="margin-top:6px;">{badges}</div></div>'
 
+        if new_items:
+            intro_text = "سيقوم النظام بفحص حسابك كل ساعة وإرسال أي كويز أو أسايمنت أو محاضرة جديدة فور نزولها. بالأسفل عينة من أحدث العناصر الموجودة حالياً في منصتك:"
+        else:
+            intro_text = "سيقوم النظام بفحص حسابك كل ساعة وإرسال أي كويز أو أسايمنت أو محاضرة جديدة فور نزولها. لا توجد عناصر جديدة حالياً، وسنرسل لك أي جديد أول بأول."
+
         welcome_banner = f"""
         <div style="background:#e6f4ea;border:1px solid #ceead6;border-radius:10px;padding:16px;margin-bottom:18px;color:#137333;font-size:14px;">
             <strong style="font-size:16px;">🎉 مرحباً بك! تم تفعيل منبه منصة المعهد لحسابك بنجاح</strong>
-            <p style="margin:6px 0 0;">سيقوم النظام بفحص حسابك كل ساعة وإرسال أي كويز أو أسايمنت أو محاضرة جديدة فور نزولها. بالأسفل عينة من أحدث العناصر الموجودة حالياً في منصتك:</p>
+            <p style="margin:6px 0 0;">{intro_text}</p>
             {courses_list_html}
         </div>
         """
@@ -487,22 +560,22 @@ def build_email_html(
     return f"""
     <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"></head>
     <body style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;text-align:right;background:#f1f3f4;padding:20px;margin:0;">
-        <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-            <div style="background:#1a73e8;color:#fff;padding:18px 24px;">
-                <h2 style="margin:0;font-size:20px;">🔔 إشعار جديد من منصة المعهد (CIS LMS)</h2>
-                <p style="margin:6px 0 0;font-size:13px;opacity:0.9;">توقيت الفحص (القاهرة): {now_str} | عدد التحديثات: {len(new_items)}</p>
-            </div>
-            <div style="padding:20px;">
-                {welcome_banner}
-                {cards_html}
-            </div>
-            <div style="background:#f8f9fa;padding:16px 24px;text-align:center;font-size:12px;color:#5f6368;border-top:1px solid #e8eaed;line-height:1.8;">
-                تم الإرسال تلقائياً بواسطة منبه منصة المعهد (<a href="https://lmscis.com" style="color:#1a73e8;text-decoration:none;">lmscis.com</a>)<br>
-                إذا كنت لا ترغب في استقبال هذه الرسائل مرة أخرى، يمكنك
-                <a href="{unsub_url}" style="color:#d93025;font-weight:bold;text-decoration:underline;">إلغاء الاشتراك (Unsubscribe)</a>
-                بضغطة واحدة.
-            </div>
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <div style="background:#1a73e8;color:#fff;padding:18px 24px;">
+          <h2 style="margin:0;font-size:20px;">🔔 إشعار جديد من منصة المعهد (CIS LMS)</h2>
+          <p style="margin:6px 0 0;font-size:13px;opacity:0.9;">توقيت الفحص (القاهرة): {now_str} | عدد التحديثات: {len(new_items)}</p>
         </div>
+        <div style="padding:20px;">
+          {welcome_banner}
+          {cards_html}
+        </div>
+        <div style="background:#f8f9fa;padding:16px 24px;text-align:center;font-size:12px;color:#5f6368;border-top:1px solid #e8eaed;line-height:1.8;">
+          تم الإرسال تلقائياً بواسطة منبه منصة المعهد (<a href="https://lmscis.com" style="color:#1a73e8;text-decoration:none;">lmscis.com</a>)<br>
+          إذا كنت لا ترغب في استقبال هذه الرسائل مرة أخرى، يمكنك
+          <a href="{unsub_url}" style="color:#d93025;font-weight:bold;text-decoration:underline;">إلغاء الاشتراك (Unsubscribe)</a>
+          بضغطة واحدة.
+        </div>
+      </div>
     </body></html>
     """
 
@@ -513,7 +586,10 @@ def send_email_to_student(
     is_welcome: bool = False,
     courses_names: Optional[List[str]] = None,
 ) -> None:
-    if not new_items or not receiver_email:
+    if not receiver_email:
+        return
+    # رسالة الترحيب بتتبعت حتى لو مفيش عناصر؛ باقي الرسائل لازم يكون فيها عناصر.
+    if not new_items and not is_welcome:
         return
 
     if is_welcome:
@@ -524,8 +600,8 @@ def send_email_to_student(
     else:
         courses_summary = "، ".join(sorted({i["course_name"] for i in new_items}))
         subject = f"🔔 ({len(new_items)}) تحديثات جديدة على المنصة - المواد: {courses_summary}"
-    subject = subject.replace("\r", " ").replace("\n", " ")
 
+    subject = subject.replace("\r", " ").replace("\n", " ")
     unsub_url = build_unsubscribe_url(receiver_email)
 
     msg = MIMEMultipart("alternative")
@@ -542,84 +618,152 @@ def send_email_to_student(
     )
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=30) as server:
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_APP_PASSWORD)
         server.sendmail(EMAIL_SENDER, [receiver_email], msg.as_string())
 
 
-def fetch_active_subscribers() -> List[Dict]:
+def _supabase_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     headers = {
         "apikey": SUPABASE_SERVICE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
     }
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def fetch_active_subscribers(http: requests.Session) -> List[Dict]:
     url = (
         f"{SUPABASE_URL}/rest/v1/subscribers"
         "?active=eq.true&select=id,lms_username,lms_password_ciphertext,email,notify_prefs,seen_ids"
+        "&order=id.asc"
     )
-    resp = requests.get(url, headers=headers, timeout=30)
+    resp = http.get(url, headers=_supabase_headers(), timeout=HTTP_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
 
-def update_subscriber_seen_ids(sub_id: int, seen_ids: List[str]) -> None:
-    headers = {
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        "Content-Type": "application/json",
-    }
+def update_subscriber_seen_ids(http: requests.Session, sub_id: int, seen_ids: List[str]) -> None:
     url = f"{SUPABASE_URL}/rest/v1/subscribers?id=eq.{sub_id}"
-    requests.patch(url, headers=headers, json={"seen_ids": seen_ids}, timeout=30)
+    resp = http.patch(
+        url,
+        headers=_supabase_headers(
+            {"Content-Type": "application/json", "Prefer": "return=minimal"}
+        ),
+        json={"seen_ids": seen_ids},
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
 
 
-def main():
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables.")
+def process_subscriber(sub: Dict, http: requests.Session) -> None:
+    sub_id = sub["id"]
+    username = sub["lms_username"]
+    email = sub["email"]
+    prefs = sub.get("notify_prefs") or {}
+    seen_ids = set(sub.get("seen_ids") or [])
+    is_first_run = len(seen_ids) == 0
 
-    subscribers = fetch_active_subscribers()
-    print(f"👥 جاري فحص حسابات {len(subscribers)} طالب مشترك...")
-
-    for sub in subscribers:
-        sub_id = sub["id"]
-        username = sub["lms_username"]
+    try:
         password = decrypt_password(sub["lms_password_ciphertext"])
-        email = sub["email"]
-        prefs = sub.get("notify_prefs") or {}
-        seen_ids = set(sub.get("seen_ids") or [])
+    except ValueError:
+        print(
+            f"⚠️ تعذر فك تشفير كلمة مرور المشترك #{sub_id}. غالباً SUPABASE_SERVICE_KEY في "
+            "GitHub Secrets مختلف عن SUPABASE_SERVICE_ROLE_KEY المستخدم في الـ Edge Function."
+        )
+        return
 
-        notifier = LMSNotifier(LMS_BASE_URL, username, password)
-        if not notifier.login():
-            print(f"⚠️ تعذر تسجيل الدخول للمشترك رقم #{sub_id}.")
-            continue
+    notifier = LMSNotifier(LMS_BASE_URL, username, password)
 
-        courses = notifier.get_enrolled_courses()
-        courses_names = [c["name"] for c in courses]
+    try:
+        logged_in = notifier.login()
+    except LMSUnavailableError as exc:
+        print(
+            f"⚠️ منصة LMS لا ترد حالياً (المشترك #{sub_id}) — {exc}. "
+            "هتتعاد المحاولة تلقائياً في الدورة القادمة."
+        )
+        return
 
-        all_items: List[Dict[str, str]] = []
-        all_items.extend(notifier.scan_site_announcements_and_calendar())
-        for course in courses:
-            all_items.extend(notifier.scan_course(course))
+    if not logged_in:
+        print(f"⚠️ تعذر تسجيل الدخول للمشترك رقم #{sub_id} (اسم المستخدم أو كلمة المرور مرفوضة من المنصة).")
+        return
 
-        is_first_run = len(seen_ids) == 0
-        unseen_items = [item for item in all_items if item["id"] not in seen_ids]
-        filtered_new_items = [
-            item for item in unseen_items if is_item_allowed_by_prefs(item["type"], prefs)
-        ]
+    courses = notifier.get_enrolled_courses()
+    courses_names = [c["name"] for c in courses]
 
-        if filtered_new_items:
-            items_to_send = filtered_new_items[:4] if is_first_run else filtered_new_items
-            send_email_to_student(
-                email,
-                items_to_send,
-                is_welcome=is_first_run,
-                courses_names=courses_names,
-            )
-            print(f"📩 تم إرسال ({len(items_to_send)}) إشعار للمشترك رقم #{sub_id}.")
+    all_items: List[Dict[str, str]] = []
+    all_items.extend(notifier.scan_site_announcements_and_calendar())
+    for course in courses:
+        all_items.extend(notifier.scan_course(course))
 
-        for item in all_items:
-            seen_ids.add(item["id"])
-        update_subscriber_seen_ids(sub_id, sorted(seen_ids))
+    # أول مرة: ما نبعتش ترحيب ولا نعلّم العناصر "اتشافت" لو الفحص طلع ناقص،
+    # عشان ما يحصلش بعدين سيل إيميلات بكل العناصر القديمة.
+    if is_first_run and (not courses or notifier.course_scan_errors):
+        print(
+            f"⚠️ فحص المشترك #{sub_id} ناقص (مواد: {len(courses)}، أخطاء فحص: "
+            f"{notifier.course_scan_errors}) — هيتعاد في الدورة القادمة."
+        )
+        return
+
+    unseen_items = [item for item in all_items if item["id"] not in seen_ids]
+    filtered_new_items = [
+        item for item in unseen_items if is_item_allowed_by_prefs(item["type"], prefs)
+    ]
+
+    if is_first_run:
+        # عناصر المواد الأول، وبعدها إعلانات الموقع والتقويم
+        ordered = sorted(
+            filtered_new_items,
+            key=lambda i: i["id"].startswith(("site_discussion_", "cal_event_")),
+        )
+        send_email_to_student(email, ordered[:4], is_welcome=True, courses_names=courses_names)
+        print(f"🎉 تم إرسال رسالة الترحيب للمشترك رقم #{sub_id} ({len(courses_names)} مادة).")
+    elif filtered_new_items:
+        send_email_to_student(email, filtered_new_items)
+        print(f"📩 تم إرسال ({len(filtered_new_items)}) إشعار للمشترك رقم #{sub_id}.")
+
+    # التحديث بيحصل بعد نجاح الإرسال فقط؛ لو الإيميل فشل هتتعاد المحاولة في الدورة القادمة.
+    for item in all_items:
+        seen_ids.add(item["id"])
+    if is_first_run:
+        seen_ids.add(WELCOME_SENTINEL)
+    update_subscriber_seen_ids(http, sub_id, sorted(seen_ids))
+
+
+def main() -> int:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        print("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables.")
+        return 1
+    if not EMAIL_SENDER or not EMAIL_APP_PASSWORD:
+        print("❌ Missing EMAIL_SENDER or EMAIL_APP_PASSWORD environment variables.")
+        return 1
+
+    http = make_session()
+    try:
+        subscribers = fetch_active_subscribers(http)
+    except requests.RequestException as exc:
+        print(f"❌ تعذر قراءة المشتركين من Supabase: {describe_error(exc)}")
+        return 1
+
+    if WELCOME_ONLY:
+        subscribers = [s for s in subscribers if not (s.get("seen_ids") or [])]
+        print(f"🆕 وضع الترحيب الفوري: {len(subscribers)} مشترك جديد.")
+    else:
+        print(f"👥 جاري فحص حسابات {len(subscribers)} طالب مشترك...")
+
+    failures = 0
+    for sub in subscribers:
+        try:
+            process_subscriber(sub, http)
+        except Exception as exc:  # مشترك واحد ما يوقعش الباقي
+            failures += 1
+            print(f"::warning::فشل معالجة المشترك #{sub.get('id')} — {describe_error(exc)}")
+
+    print(f"✅ انتهى الفحص. مشتركين: {len(subscribers)} | أخطاء: {failures}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

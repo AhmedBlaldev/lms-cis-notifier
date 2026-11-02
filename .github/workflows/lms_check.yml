@@ -1,9 +1,23 @@
 name: LMS CIS Notification Checker
 
 on:
+  # الفحص الدوري كل ساعة لكل المشتركين
   schedule:
     - cron: '0 * * * *'
+  # تشغيل يدوي، أو تشغيل فوري من الـ Edge Function بعد ما طالب جديد يسجل
   workflow_dispatch:
+    inputs:
+      welcome_only:
+        description: 'true = افحص المشتركين الجدد فقط وابعتلهم رسالة الترحيب'
+        required: false
+        default: 'false'
+        type: string
+
+# تشغيل واحد في كل مرة: يمنع إن فحص الساعة والترحيب الفوري يشتغلوا مع بعض
+# ويبعتوا نفس الرسالة مرتين. أي تشغيل جديد بيستنى اللي شغال.
+concurrency:
+  group: lms-check
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -11,6 +25,7 @@ permissions:
 jobs:
   check-lms:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,6 +36,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -28,6 +44,7 @@ jobs:
       - name: Run LMS Notifier
         env:
           TZ: 'Africa/Cairo'
+          WELCOME_ONLY: ${{ github.event.inputs.welcome_only || 'false' }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

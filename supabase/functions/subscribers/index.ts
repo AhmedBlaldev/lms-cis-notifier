@@ -1,7 +1,18 @@
+// @ts-nocheck
+
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+// ---- تشغيل الـ GitHub workflow فوراً بعد التسجيل (اختياري) ----
+// لو GH_DISPATCH_TOKEN مش متضاف في Edge Function Secrets، التسجيل بيشتغل عادي
+// والترحيب بيوصل في فحص الساعة الجاي.
+const ghToken = Deno.env.get("GH_DISPATCH_TOKEN") ?? "";
+const ghRepo = Deno.env.get("GH_REPO") ?? "AhmedBlaldev/lms-cis-notifier";
+const ghWorkflow = Deno.env.get("GH_WORKFLOW") ?? "lms_check.yml";
+const ghRef = Deno.env.get("GH_REF") ?? "main";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "https://ahmedblaldev.github.io",
   "Access-Control-Allow-Headers": "authorization, content-type, apikey",
@@ -23,27 +34,15 @@ function base64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-function fromBase64(value: string) {
-  const binary = atob(value);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
 async function encryptionKey() {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(serviceRoleKey),
-  );
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(serviceRoleKey));
   return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt"]);
 }
 
 async function encryptPassword(password: string) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = new Uint8Array(
-    await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      await encryptionKey(),
-      new TextEncoder().encode(password),
-    ),
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await encryptionKey(), new TextEncoder().encode(password)),
   );
   const combined = new Uint8Array(iv.length + encrypted.length);
   combined.set(iv);
@@ -59,15 +58,8 @@ async function hmacToken(email: string) {
     false,
     ["sign"],
   );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(email),
-  );
-  return base64(new Uint8Array(signature))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(email));
+  return base64(new Uint8Array(signature)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 async function supabaseRequest(path: string, init: RequestInit = {}) {
@@ -80,6 +72,33 @@ async function supabaseRequest(path: string, init: RequestInit = {}) {
       ...(init.headers ?? {}),
     },
   });
+}
+
+// يشغّل workflow الترحيب (welcome_only=true) — بيرجع true لو GitHub قبل الطلب.
+async function triggerWelcomeRun(): Promise<boolean> {
+  if (!ghToken) return false;
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${ghRepo}/actions/workflows/${ghWorkflow}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${ghToken}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "lms-notifier-edge-function",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ref: ghRef, inputs: { welcome_only: "true" } }),
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    if (!res.ok) console.error("GitHub dispatch failed:", res.status, await res.text());
+    return res.ok;
+  } catch (error) {
+    console.error("GitHub dispatch error:", error);
+    return false;
+  }
 }
 
 Deno.serve(async (request) => {
@@ -99,8 +118,7 @@ Deno.serve(async (request) => {
         ? body.notify_prefs
         : { quiz: true, assign: true, forum: true, resource: true };
 
-      if (!username || username.length > 100 || !password || password.length > 500 ||
-        !validEmail(email) || email.length > 254) {
+      if (!username || username.length > 100 || !password || password.length > 500 || !validEmail(email) || email.length > 254) {
         return response({ error: "Invalid subscription details" }, 400);
       }
 
@@ -108,26 +126,24 @@ Deno.serve(async (request) => {
         `subscribers?lms_username=eq.${encodeURIComponent(username)}&select=id&limit=1`,
       );
       if (!existing.ok) return response({ error: "Unable to validate subscription" }, 502);
-      if ((await existing.json()).length > 0) {
-        return response({ error: "This LMS account is already subscribed" }, 409);
-      }
+      if ((await existing.json()).length > 0) return response({ error: "This LMS account is already subscribed" }, 409);
 
-      const upstream = await supabaseRequest(
-        "subscribers",
-        {
-          method: "POST",
-          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({
-            lms_username: username,
-            lms_password_ciphertext: await encryptPassword(password),
-            email,
-            notify_prefs: prefs,
-            active: true,
-          }),
-        },
-      );
+      const upstream = await supabaseRequest("subscribers", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          lms_username: username,
+          lms_password_ciphertext: await encryptPassword(password),
+          email,
+          notify_prefs: prefs,
+          active: true,
+        }),
+      });
       if (!upstream.ok) return response({ error: "Unable to save subscription" }, 502);
-      return response({ ok: true });
+
+      // الطالب اتسجل → شغّل الـ workflow فوراً عشان الترحيب يوصله خلال دقيقة تقريباً
+      const welcomeTriggered = await triggerWelcomeRun();
+      return response({ ok: true, welcome_triggered: welcomeTriggered });
     }
 
     if (action === "unsubscribe") {
@@ -135,11 +151,10 @@ Deno.serve(async (request) => {
       if (!validEmail(email) || email.length > 254 || !token || token !== await hmacToken(email)) {
         return response({ error: "Invalid unsubscribe link" }, 403);
       }
-
-      const upstream = await supabaseRequest(
-        `subscribers?email=eq.${encodeURIComponent(email)}`,
-        { method: "DELETE", headers: { Prefer: "return=minimal" } },
-      );
+      const upstream = await supabaseRequest(`subscribers?email=eq.${encodeURIComponent(email)}`, {
+        method: "DELETE",
+        headers: { Prefer: "return=minimal" },
+      });
       if (!upstream.ok) return response({ error: "Unable to unsubscribe" }, 502);
       return response({ ok: true });
     }
