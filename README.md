@@ -41,7 +41,7 @@ Your LMS and email credentials are stored safely inside GitHub's encrypted secre
 
 1. Inside your forked repository on GitHub, click the **Settings** tab at the top.
 2. In the left sidebar, expand **Secrets and variables** and click **Actions**.
-3. Click the green **New repository secret** button and add the following **5 secrets** one by one:
+3. Click the green **New repository secret** button and add the following **8 secrets** one by one:
 
 | Secret Name | Value to Enter |
 | :--- | :--- |
@@ -50,8 +50,13 @@ Your LMS and email credentials are stored safely inside GitHub's encrypted secre
 | `EMAIL_SENDER` | Your personal Gmail address (e.g., `yourname@gmail.com`) |
 | `EMAIL_APP_PASSWORD` | The 16-character Gmail App Password generated in **Step 2** |
 | `EMAIL_RECEIVER` | The email address where you want to receive alerts (usually the same as `EMAIL_SENDER`) |
+| `SUPABASE_URL` | Your Supabase project URL, for example `https://your-project.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | The **service_role JWT** from Supabase **Project Settings → API → Legacy API Keys**. It must start with `eyJ...`; do not use the anon, publishable, or secret key. |
+| `ENCRYPTION_KEY` | A long random secret, entered with the exact same value in GitHub Actions and Supabase Edge Function Secrets. This is separate from the Supabase service-role key. |
 
 The Supabase project must have the `subscribers` Edge Function deployed and the public table policies disabled. The browser must not have direct table access.
+
+> **Important:** Password encryption uses `ENCRYPTION_KEY`, not the Supabase service-role key. Configure the same `ENCRYPTION_KEY` in GitHub Actions and Supabase Edge Function Secrets, deploy the current `subscribers` function, then register the subscriber again. Keep `SUPABASE_SERVICE_KEY` as the service-role JWT for reading the table only. If the workflow prints `تعذر فك تشفير كلمة مرور المشترك`, the two encryption-key values differ or the subscriber was encrypted by an older deployment.
 
 ### Step 4: Enable & Test Your Workflow
 
