@@ -665,7 +665,10 @@ def send_email_to_student(
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
-    msg["List-Unsubscribe"] = f"<{unsub_url}>"
+    # علامات الأولوية العالية لتشجيع تطبيقات الموبايل على إظهار إشعار فوري
+    msg["X-Priority"] = "1"
+    msg["Priority"] = "Urgent"
+    msg["Importance"] = "high"
 
     plain_fallback = (
         f"إشعار من منبه منصة المعهد (CIS LMS):\n"
