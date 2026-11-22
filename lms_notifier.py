@@ -27,6 +27,7 @@ import time
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr, formatdate, make_msgid
 from typing import Dict, List, Optional
 from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
@@ -659,10 +660,20 @@ def send_email_to_student(
     unsub_url = build_unsubscribe_url(receiver_email)
 
     msg = MIMEMultipart("alternative")
-    msg["From"] = EMAIL_SENDER
+    msg["From"] = formataddr(("CIS LMS Notifier", EMAIL_SENDER))
     msg["To"] = receiver_email
     msg["Subject"] = subject
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid()
     msg["List-Unsubscribe"] = f"<{unsub_url}>"
+
+    plain_fallback = (
+        f"إشعار من منبه منصة المعهد (CIS LMS):\n"
+        f"{subject}\n\n"
+        f"لعرض كامل تفاصيل المواد والأحداث وروابطها، يرجى فتح الرسالة عبر تطبيق يدعم HTML.\n"
+        f"لإلغاء الاشتراك: {unsub_url}"
+    )
+    msg.attach(MIMEText(plain_fallback, "plain", "utf-8"))
 
     html_body = build_email_html(
         new_items,
@@ -779,18 +790,28 @@ def process_subscriber(sub: Dict, http: requests.Session) -> None:
         item for item in unseen_items if is_item_allowed_by_prefs(item["type"], prefs)
     ]
 
+    def _mask_email(target_email: str) -> str:
+        if "@" not in target_email:
+            return "***"
+        user_part, domain = target_email.split("@", 1)
+        if len(user_part) <= 2:
+            return f"{user_part[:1]}*@{domain}"
+        return f"{user_part[:2]}***{user_part[-1]}@{domain}"
+
+    masked_email = _mask_email(email)
+
     if is_first_run:
         ordered = sorted(
             filtered_new_items,
             key=lambda i: i["id"].startswith(("site_discussion_", "cal_event_")),
         )
         send_email_to_student(email, ordered[:4], is_welcome=True, courses_names=courses_names)
-        print(f"🎉 تم إرسال رسالة الترحيب للمشترك رقم #{sub_id} ({len(courses_names)} مادة).")
+        print(f"🎉 تم إرسال رسالة الترحيب للمشترك رقم #{sub_id} ({masked_email}) — {len(courses_names)} مادة.")
     elif filtered_new_items:
         send_email_to_student(email, filtered_new_items)
-        print(f"📩 تم إرسال ({len(filtered_new_items)}) إشعار للمشترك رقم #{sub_id}.")
+        print(f"📩 تم إرسال ({len(filtered_new_items)}) إشعار للمشترك رقم #{sub_id} ({masked_email}).")
     else:
-        print(f"✔️ المشترك #{sub_id}: لا توجد تحديثات جديدة منذ آخر فحص.")
+        print(f"✔️ المشترك #{sub_id} ({masked_email}): لا توجد تحديثات جديدة منذ آخر فحص.")
 
     for item in all_items:
         seen_ids.add(item["id"])
