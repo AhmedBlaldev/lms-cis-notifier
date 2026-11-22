@@ -14,7 +14,7 @@ const ghWorkflow = Deno.env.get("GH_WORKFLOW") ?? "lms_check.yml";
 const ghRef = Deno.env.get("GH_REF") ?? "main";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "https://ahmedblaldev.github.io",
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type, apikey",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
