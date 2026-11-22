@@ -50,4 +50,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
         run: python lms_notifier.py
